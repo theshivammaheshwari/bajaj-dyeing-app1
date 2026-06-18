@@ -1,0 +1,1224 @@
+{
+  "shades": [
+    {
+      "_id": "69c582e090fdc06d61c3c77b",
+      "shade_number": "1",
+      "original_weight": 12.0,
+      "dyes": [
+        {
+          "dye_name": "Yellow4g",
+          "quantity": 0.9
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 0.13
+        }
+      ],
+      "created_at": "2026-03-26T19:02:56.877000"
+    },
+    {
+      "_id": "69c5871dc6ddf0978c1dca03",
+      "shade_number": "2",
+      "original_weight": 6.0,
+      "dyes": [
+        {
+          "dye_name": "Yellow 4g",
+          "quantity": 35.02
+        },
+        {
+          "dye_name": "Otange rl",
+          "quantity": 8.43
+        }
+      ],
+      "created_at": "2026-03-26T19:21:01.466000"
+    },
+    {
+      "_id": "69c74b617ac739f543141a45",
+      "shade_number": "3",
+      "original_weight": 9.25,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Golden yellow2gd",
+          "quantity": 175.0
+        }
+      ],
+      "created_at": "2026-03-28T03:30:41.571000"
+    },
+    {
+      "_id": "69c74c217ac739f543141a46",
+      "shade_number": "4",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 193.0
+        }
+      ],
+      "created_at": "2026-03-28T03:33:53.064000"
+    },
+    {
+      "_id": "69c74c687ac739f543141a47",
+      "shade_number": "5",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 190.0
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 70.0
+        }
+      ],
+      "created_at": "2026-03-28T03:35:04.297000"
+    },
+    {
+      "_id": "69c74cc67ac739f543141a49",
+      "shade_number": "6",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 362.4
+        },
+        {
+          "dye_name": "Scarlet rr",
+          "quantity": 42.0
+        },
+        {
+          "dye_name": "Red2bn",
+          "quantity": 10.8
+        }
+      ],
+      "created_at": "2026-03-28T03:36:38.104000"
+    },
+    {
+      "_id": "69c74d837ac739f543141a4a",
+      "shade_number": "7",
+      "original_weight": 9.3,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 65.0
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 3.2
+        },
+        {
+          "dye_name": "Yellow 4g",
+          "quantity": 3.2
+        }
+      ],
+      "created_at": "2026-03-28T03:39:47.738000"
+    },
+    {
+      "_id": "69c74dc87ac739f543141a4b",
+      "shade_number": "8",
+      "original_weight": 12.3,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 72.5
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 14.0
+        },
+        {
+          "dye_name": "Yellow4g",
+          "quantity": 0.9
+        }
+      ],
+      "created_at": "2026-03-28T03:40:56.147000"
+    },
+    {
+      "_id": "69c74df57ac739f543141a4c",
+      "shade_number": "9",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 40.0
+        },
+        {
+          "dye_name": "Violet 3r",
+          "quantity": 20.0
+        }
+      ],
+      "created_at": "2026-03-28T03:41:41.218000"
+    },
+    {
+      "_id": "69c74e5e7ac739f543141a4d",
+      "shade_number": "11",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Red2bn",
+          "quantity": 55.0
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 12.0
+        },
+        {
+          "dye_name": "Navy blue",
+          "quantity": 0.05
+        },
+        {
+          "dye_name": "Violet3r",
+          "quantity": 0.1
+        }
+      ],
+      "created_at": "2026-03-28T03:43:26.637000"
+    },
+    {
+      "_id": "69c74e937ac739f543141a4e",
+      "shade_number": "12",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 46.5
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 0.08
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 0.08
+        }
+      ],
+      "created_at": "2026-03-28T03:44:19.759000"
+    },
+    {
+      "_id": "69c74eeb7ac739f543141a4f",
+      "shade_number": "13",
+      "original_weight": 12.5,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Red2bn",
+          "quantity": 81.0
+        }
+      ],
+      "created_at": "2026-03-28T03:45:47.338000"
+    },
+    {
+      "_id": "69c74f087ac739f543141a50",
+      "shade_number": "14",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Red2bn",
+          "quantity": 290.0
+        }
+      ],
+      "created_at": "2026-03-28T03:46:16.174000"
+    },
+    {
+      "_id": "69c74fc87ac739f543141a51",
+      "shade_number": "15",
+      "original_weight": 15.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Red2bn",
+          "quantity": 272.0
+        },
+        {
+          "dye_name": "Navy blue3g",
+          "quantity": 1.95
+        },
+        {
+          "dye_name": "Violet 3r",
+          "quantity": 1.45
+        }
+      ],
+      "created_at": "2026-03-28T03:49:28.822000"
+    },
+    {
+      "_id": "69c750467ac739f543141a52",
+      "shade_number": "16",
+      "original_weight": 12.5,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Blue dbr",
+          "quantity": 163.0
+        }
+      ],
+      "created_at": "2026-03-28T03:51:34.848000"
+    },
+    {
+      "_id": "69c750677ac739f543141a53",
+      "shade_number": "17",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Blue sr",
+          "quantity": 120.0
+        }
+      ],
+      "created_at": "2026-03-28T03:52:07.269000"
+    },
+    {
+      "_id": "69c750df7ac739f543141a54",
+      "shade_number": "18",
+      "original_weight": 9.3,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Blue sr",
+          "quantity": 13.7
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 0.05
+        }
+      ],
+      "created_at": "2026-03-28T03:54:07.972000"
+    },
+    {
+      "_id": "69c751237ac739f543141a55",
+      "shade_number": "19",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Blue bg",
+          "quantity": 195.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 3.6
+        }
+      ],
+      "created_at": "2026-03-28T03:55:15.532000"
+    },
+    {
+      "_id": "69c751777ac739f543141a56",
+      "shade_number": "20",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 100.0
+        },
+        {
+          "dye_name": "Blue sr",
+          "quantity": 20.0
+        }
+      ],
+      "created_at": "2026-03-28T03:56:39.921000"
+    },
+    {
+      "_id": "69c7ade12e926b337b6eb7c3",
+      "shade_number": "21",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 100.0
+        },
+        {
+          "dye_name": "Blue sr",
+          "quantity": 20.0
+        }
+      ],
+      "created_at": "2026-03-28T10:30:57.215000"
+    },
+    {
+      "_id": "69c7ae3d2e926b337b6eb7c4",
+      "shade_number": "22",
+      "original_weight": 9.5,
+      "program_number": "P1",
+      "dyes": [
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 80.0
+        },
+        {
+          "dye_name": "Yellow 4g",
+          "quantity": 55.0
+        },
+        {
+          "dye_name": "Blue 2rx",
+          "quantity": 70.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 5.0
+        }
+      ],
+      "created_at": "2026-03-28T10:32:29.348000",
+      "rc": "Yes"
+    },
+    {
+      "_id": "69c7aeb82e926b337b6eb7c5",
+      "shade_number": "23",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "dyes": [
+        {
+          "dye_name": "Blue bg",
+          "quantity": 200.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 60.0
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 60.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 80.0
+        }
+      ],
+      "created_at": "2026-03-28T10:34:32.324000",
+      "rc": "Yes"
+    },
+    {
+      "_id": "69c7c6a63d752d819a9e7a89",
+      "shade_number": "24",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Blue bg",
+          "quantity": 480.0
+        },
+        {
+          "dye_name": "Yellow 4g",
+          "quantity": 84.0
+        }
+      ],
+      "created_at": "2026-03-28T12:16:38.288000"
+    },
+    {
+      "_id": "69c7c7163d752d819a9e7a8a",
+      "shade_number": "25",
+      "original_weight": 9.1,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Green 2b",
+          "quantity": 200.0
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 20.0
+        },
+        {
+          "dye_name": "Blue gsl",
+          "quantity": 40.0
+        }
+      ],
+      "created_at": "2026-03-28T12:18:30.745000"
+    },
+    {
+      "_id": "69c7c7843d752d819a9e7a8b",
+      "shade_number": "26",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 150.0
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 92.0
+        }
+      ],
+      "created_at": "2026-03-28T12:20:20.988000"
+    },
+    {
+      "_id": "69c7c7e83d752d819a9e7a8c",
+      "shade_number": "27",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 362.0
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 33.0
+        },
+        {
+          "dye_name": "Navy blue",
+          "quantity": 3.0
+        }
+      ],
+      "created_at": "2026-03-28T12:22:00.861000"
+    },
+    {
+      "_id": "69c7c8bc3d752d819a9e7a8d",
+      "shade_number": "28",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 300.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 7.5
+        }
+      ],
+      "created_at": "2026-03-28T12:25:32.411000"
+    },
+    {
+      "_id": "69c7c9a53d752d819a9e7a8e",
+      "shade_number": "29",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 180.0
+        },
+        {
+          "dye_name": "Scarlet rr",
+          "quantity": 140.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 28.0
+        }
+      ],
+      "created_at": "2026-03-28T12:29:25.836000"
+    },
+    {
+      "_id": "69c7c9e03d752d819a9e7a8f",
+      "shade_number": "30",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 200.0
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 40.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 5.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 5.0
+        }
+      ],
+      "created_at": "2026-03-28T12:30:24.396000"
+    },
+    {
+      "_id": "69c7ccd03d752d819a9e7a90",
+      "shade_number": "31",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Red2bn",
+          "quantity": 44.0
+        },
+        {
+          "dye_name": "Scarlet rr",
+          "quantity": 19.0
+        }
+      ],
+      "created_at": "2026-03-28T12:42:56.408000"
+    },
+    {
+      "_id": "69c7ccf13d752d819a9e7a91",
+      "shade_number": "32",
+      "original_weight": 15.0,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Blue gsl",
+          "quantity": 90.0
+        }
+      ],
+      "created_at": "2026-03-28T12:43:29.336000"
+    },
+    {
+      "_id": "69c7cd5d3d752d819a9e7a92",
+      "shade_number": "33",
+      "original_weight": 9.4,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Pink rbsf",
+          "quantity": 50.0
+        },
+        {
+          "dye_name": "Redviolet IFBL",
+          "quantity": 45.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 0.4
+        }
+      ],
+      "created_at": "2026-03-28T12:45:17.730000"
+    },
+    {
+      "_id": "69c7cd7f3d752d819a9e7a93",
+      "shade_number": "34",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Violet3r",
+          "quantity": 125.0
+        }
+      ],
+      "created_at": "2026-03-28T12:45:51.540000"
+    },
+    {
+      "_id": "69c7cdf03d752d819a9e7a94",
+      "shade_number": "35",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Red2b",
+          "quantity": 270.0
+        },
+        {
+          "dye_name": "Brown 3rsf",
+          "quantity": 60.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 110.0
+        }
+      ],
+      "created_at": "2026-03-28T12:47:44.325000"
+    },
+    {
+      "_id": "69c7ce4a3d752d819a9e7a95",
+      "shade_number": "36",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Blue bg",
+          "quantity": 166.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 21.0
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 4.1
+        }
+      ],
+      "created_at": "2026-03-28T12:49:14.023000"
+    },
+    {
+      "_id": "69c7d1343d752d819a9e7a96",
+      "shade_number": "37",
+      "original_weight": 12.0,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Blue gsl",
+          "quantity": 100.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 38.0
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 30.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 130.0
+        }
+      ],
+      "created_at": "2026-03-28T13:01:40.610000"
+    },
+    {
+      "_id": "69c7d8f74e3621aa9ba65b02",
+      "shade_number": "38",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 150.0
+        },
+        {
+          "dye_name": "Yellow 4g",
+          "quantity": 25.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 18.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 75.0
+        }
+      ],
+      "created_at": "2026-03-28T13:34:47.358000"
+    },
+    {
+      "_id": "69c7d9504e3621aa9ba65b03",
+      "shade_number": "39",
+      "original_weight": 9.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow 4g",
+          "quantity": 18.5
+        },
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 67.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 25.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 7.3
+        }
+      ],
+      "created_at": "2026-03-28T13:36:16.371000"
+    },
+    {
+      "_id": "69c7d9b54e3621aa9ba65b04",
+      "shade_number": "40",
+      "original_weight": 9.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 75.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 30.0
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 3.75
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 1.15
+        }
+      ],
+      "created_at": "2026-03-28T13:37:57.165000"
+    },
+    {
+      "_id": "69c7da2d4e3621aa9ba65b05",
+      "shade_number": "41",
+      "original_weight": 9.3,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 7.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 65.0
+        }
+      ],
+      "created_at": "2026-03-28T13:39:57.276000"
+    },
+    {
+      "_id": "69c7dac94e3621aa9ba65b06",
+      "shade_number": "42",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow4g",
+          "quantity": 44.0
+        },
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 35.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 0.7
+        }
+      ],
+      "created_at": "2026-03-28T13:42:33.167000"
+    },
+    {
+      "_id": "69c7db054e3621aa9ba65b07",
+      "shade_number": "43",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 24.0
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 2.5
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 3.0
+        }
+      ],
+      "created_at": "2026-03-28T13:43:33.332000"
+    },
+    {
+      "_id": "69c7db3e4e3621aa9ba65b08",
+      "shade_number": "44",
+      "original_weight": 9.8,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 60.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 11.0
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 11.0
+        }
+      ],
+      "created_at": "2026-03-28T13:44:30.009000"
+    },
+    {
+      "_id": "69c7db7e4e3621aa9ba65b09",
+      "shade_number": "45",
+      "original_weight": 9.1,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 74.0
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 7.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 7.6
+        }
+      ],
+      "created_at": "2026-03-28T13:45:34.846000"
+    },
+    {
+      "_id": "69c7dc624e3621aa9ba65b0a",
+      "shade_number": "46",
+      "original_weight": 9.1,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Orange rl",
+          "quantity": 72.5
+        }
+      ],
+      "created_at": "2026-03-28T13:49:22.308000"
+    },
+    {
+      "_id": "69c7dc8f4e3621aa9ba65b0b",
+      "shade_number": "47",
+      "original_weight": 12.0,
+      "program_number": "P2",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Orange rl",
+          "quantity": 140.0
+        },
+        {
+          "dye_name": "Red2bn",
+          "quantity": 18.0
+        }
+      ],
+      "created_at": "2026-03-28T13:50:07.638000"
+    },
+    {
+      "_id": "69c7dcfc4e3621aa9ba65b0c",
+      "shade_number": "48",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Brown 3rsf",
+          "quantity": 176.0
+        }
+      ],
+      "created_at": "2026-03-28T13:51:56.234000"
+    },
+    {
+      "_id": "69c7dd214e3621aa9ba65b0d",
+      "shade_number": "49",
+      "original_weight": 9.0,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Pink rbsf",
+          "quantity": 69.0
+        },
+        {
+          "dye_name": "Red2bn",
+          "quantity": 95.0
+        }
+      ],
+      "created_at": "2026-03-28T13:52:33.377000"
+    },
+    {
+      "_id": "69c7dd4d4e3621aa9ba65b0e",
+      "shade_number": "50",
+      "original_weight": 12.3,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Pink rbsf",
+          "quantity": 94.0
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 23.0
+        }
+      ],
+      "created_at": "2026-03-28T13:53:17.142000"
+    },
+    {
+      "_id": "69c7dd734e3621aa9ba65b0f",
+      "shade_number": "51",
+      "original_weight": 9.1,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Red bel",
+          "quantity": 100.0
+        }
+      ],
+      "created_at": "2026-03-28T13:53:55.231000"
+    },
+    {
+      "_id": "69c7ddf34e3621aa9ba65b10",
+      "shade_number": "52",
+      "original_weight": 8.9,
+      "program_number": "P3",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Red bel",
+          "quantity": 30.0
+        },
+        {
+          "dye_name": "Pink rbsf",
+          "quantity": 10.0
+        }
+      ],
+      "created_at": "2026-03-28T13:56:03.235000"
+    },
+    {
+      "_id": "69c7de2c4e3621aa9ba65b11",
+      "shade_number": "53",
+      "original_weight": 9.5,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Golden yellow2gd",
+          "quantity": 50.0
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 5.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 20.0
+        },
+        {
+          "dye_name": "Orange rl",
+          "quantity": 10.0
+        }
+      ],
+      "created_at": "2026-03-28T13:57:00.884000"
+    },
+    {
+      "_id": "69c7de5c4e3621aa9ba65b12",
+      "shade_number": "54",
+      "original_weight": 12.0,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 200.0
+        }
+      ],
+      "created_at": "2026-03-28T13:57:48.935000"
+    },
+    {
+      "_id": "69c7dea14e3621aa9ba65b13",
+      "shade_number": "55",
+      "original_weight": 12.2,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Yellow brown",
+          "quantity": 32.2
+        },
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 3.2
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 2.75
+        }
+      ],
+      "created_at": "2026-03-28T13:58:57.494000"
+    },
+    {
+      "_id": "69c7dee64e3621aa9ba65b14",
+      "shade_number": "56",
+      "original_weight": 12.2,
+      "program_number": "P1",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Scarlet rr",
+          "quantity": 235.0
+        }
+      ],
+      "created_at": "2026-03-28T14:00:06.130000"
+    },
+    {
+      "_id": "69c7df304e3621aa9ba65b15",
+      "shade_number": "57",
+      "original_weight": 11.86,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Black emrd",
+          "quantity": 0.15
+        },
+        {
+          "dye_name": "Golden yellow2gd",
+          "quantity": 140.0
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 15.0
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 65.0
+        }
+      ],
+      "created_at": "2026-03-28T14:01:20.609000"
+    },
+    {
+      "_id": "69c7e23327be9b07b34e2f57",
+      "shade_number": "58",
+      "original_weight": 9.6,
+      "program_number": "P1",
+      "rc": "No",
+      "dyes": [
+        {
+          "dye_name": "Navy blue 3g",
+          "quantity": 70.0
+        },
+        {
+          "dye_name": "Black emrd",
+          "quantity": 30.0
+        },
+        {
+          "dye_name": "Scarlet 3r",
+          "quantity": 5.0
+        },
+        {
+          "dye_name": "Blue gsl",
+          "quantity": 1.5
+        },
+        {
+          "dye_name": "Red2b",
+          "quantity": 1.5
+        }
+      ],
+      "created_at": "2026-03-28T14:14:11.074000"
+    },
+    {
+      "_id": "69c7e29827be9b07b34e2f58",
+      "shade_number": "59",
+      "original_weight": 12.46,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Blue bg",
+          "quantity": 348.5
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 29.04
+        },
+        {
+          "dye_name": "Blue sr",
+          "quantity": 78.23
+        }
+      ],
+      "created_at": "2026-03-28T14:15:52.629000"
+    },
+    {
+      "_id": "69c7e2fb27be9b07b34e2f59",
+      "shade_number": "60",
+      "original_weight": 12.7,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Blue bg",
+          "quantity": 404.4
+        },
+        {
+          "dye_name": "Yellow c4g",
+          "quantity": 38.7
+        },
+        {
+          "dye_name": "Blue sr",
+          "quantity": 71.6
+        },
+        {
+          "dye_name": "Yellow 10gn",
+          "quantity": 28.54
+        }
+      ],
+      "created_at": "2026-03-28T14:17:31.468000"
+    },
+    {
+      "_id": "69c92884ded0d3020e5fa398",
+      "shade_number": "61",
+      "original_weight": 9.86,
+      "program_number": "P3",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Orange rl",
+          "quantity": 160.0
+        },
+        {
+          "dye_name": "Red2bn",
+          "quantity": 40.0
+        },
+        {
+          "dye_name": "Navy blue",
+          "quantity": 5.0
+        }
+      ],
+      "created_at": "2026-03-29T13:26:28.111000"
+    },
+    {
+      "_id": "69c92980ded0d3020e5fa399",
+      "shade_number": "62",
+      "original_weight": 9.4,
+      "program_number": "P1",
+      "rc": "Yes",
+      "dyes": [
+        {
+          "dye_name": "Orange rl",
+          "quantity": 150.0
+        },
+        {
+          "dye_name": "Scarlet rr",
+          "quantity": 100.0
+        }
+      ],
+      "created_at": "2026-03-29T13:30:40.684000"
+    }
+  ],
+  "daily_tasks": [
+    {
+      "_id": "69c73e5c2cf06d23a90c498c",
+      "date": "2026-03-28",
+      "created_at": "2026-03-28T02:35:08.640000",
+      "m5": [
+        {
+          "shade_id": "69c5871dc6ddf0978c1dca03",
+          "shade_number": "2",
+          "springs_2ply": 16,
+          "springs_3ply": 0,
+          "weight": 24.0,
+          "ply2_weight": 0,
+          "ply3_weight": 0,
+          "start_time": "2026-03-28T11:20:08.614Z",
+          "end_time": "2026-03-28T11:20:15.598Z",
+          "status": "completed"
+        }
+      ]
+    }
+  ],
+  "export_date": "2026-03-29T18:08:25.438759",
+  "total_shades": 61,
+  "total_daily_tasks": 1
+}

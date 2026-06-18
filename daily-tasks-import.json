@@ -1,0 +1,24 @@
+[
+  {
+    "date": "2026-03-28",
+    "m1": [],
+    "m2": [],
+    "m3": [],
+    "m4": [],
+    "m5": [
+      {
+        "shade_id": "69c5871dc6ddf0978c1dca03",
+        "shade_number": "2",
+        "springs_2ply": 16,
+        "springs_3ply": 0,
+        "weight": 24,
+        "ply2_weight": 0,
+        "ply3_weight": 0,
+        "start_time": "2026-03-28T11:20:08.614Z",
+        "end_time": "2026-03-28T11:20:15.598Z",
+        "status": "completed"
+      }
+    ],
+    "created_at": "2026-03-28T02:35:08.640000"
+  }
+]
