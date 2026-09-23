@@ -27,6 +27,12 @@ const MACHINES = [
   { id: 'm3', name: 'M3', capacity: 12, totalSprings: 8 },
   { id: 'm4', name: 'M4', capacity: 6, totalSprings: 4 },
   { id: 'm5', name: 'M5', capacity: 24, totalSprings: 16 },
+  { id: 'm6', name: 'M6', capacity: 15, totalSprings: 10 },
+  { id: 'm7', name: 'M7', capacity: 15, totalSprings: 10 },
+  { id: 'm8', name: 'M8', capacity: 12, totalSprings: 8 },
+  { id: 'm9', name: 'M9', capacity: 12, totalSprings: 8 },
+  { id: 'm10', name: 'M10', capacity: 6, totalSprings: 4 },
+  { id: 'm11', name: 'M11', capacity: 6, totalSprings: 4 },
 ];
 
 interface MachineTask {
@@ -46,6 +52,12 @@ interface DailyTask {
   m3?: MachineTask[];
   m4?: MachineTask[];
   m5?: MachineTask[];
+  m6?: MachineTask[];
+  m7?: MachineTask[];
+  m8?: MachineTask[];
+  m9?: MachineTask[];
+  m10?: MachineTask[];
+  m11?: MachineTask[];
   automatic_tasks?: MachineTask[];
 }
 

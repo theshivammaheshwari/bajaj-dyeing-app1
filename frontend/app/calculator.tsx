@@ -18,12 +18,13 @@ import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
-const MACHINE_WEIGHTS = [6, 10.5, 12, 24];
+const MACHINE_WEIGHTS = [6, 10.5, 12, 15, 24];
 
 const MACHINE_MAPPING: { [key: number]: string } = {
-  6: "M4",
+  6: "M4 / M10 / M11",
   10.5: "M1",
-  12: "M2 / M3",
+  12: "M2 / M3 / M8 / M9",
+  15: "M6 / M7",
   24: "M5"
 };
 
@@ -68,13 +69,14 @@ export default function Calculator() {
   const [shade, setShade] = useState<Shade | null>(null);
   const [selectedMachine, setSelectedMachine] = useState<number | 'random'>(6);
   const [randomWeight, setRandomWeight] = useState<string>('');
-  const [twoPValues, setTwoPValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '24': '', 'random': '' });
-  const [threePValues, setThreePValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '24': '', 'random': '' });
+  const [twoPValues, setTwoPValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '15': '', '24': '', 'random': '' });
+  const [threePValues, setThreePValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '15': '', '24': '', 'random': '' });
   const [machineSelections, setMachineSelections] = useState<{ [key: string]: string }>({
     '6': 'M4',
     '10.5': 'M1',
+    '12': 'M2',
+    '15': 'M6',
     '24': 'M5',
-    '12': '',
     'random': ''
   });
   const [allMachinesData, setAllMachinesData] = useState<{
@@ -135,11 +137,11 @@ export default function Calculator() {
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${assignDate}`);
       const data = await response.json();
       
-      let existingTask = data.id ? data : { date: assignDate, m1: [], m2: [], m3: [], m4: [], m5: [], automatic_tasks: [] };
+      let existingTask = data.id ? data : { date: assignDate, m1: [], m2: [], m3: [], m4: [], m5: [], m6: [], m7: [], m8: [], m9: [], m10: [], m11: [], automatic_tasks: [] };
 
       // Map cart items to machine tasks
       cart.forEach(item => {
-        const machineKey = item.machine.toLowerCase() as 'm1' | 'm2' | 'm3' | 'm4' | 'm5';
+        const machineKey = item.machine.toLowerCase() as 'm1' | 'm2' | 'm3' | 'm4' | 'm5' | 'm6' | 'm7' | 'm8' | 'm9' | 'm10' | 'm11';
         const newTask = {
           id: Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11),
           shade_id: item.id.split('-')[0], // Extract shade id from cart item id
@@ -355,7 +357,7 @@ export default function Calculator() {
 
     const machine = machineSelections[selectedMachine.toString()];
     if (!machine) {
-      Alert.alert('Selection Required', 'Please select a machine (M1-M5) for this batch.');
+      Alert.alert('Selection Required', 'Please select a machine (M1-M11) for this batch.');
       return;
     }
 
@@ -436,7 +438,7 @@ export default function Calculator() {
     }
 
     // Define sort order
-    const machineOrder = ["M1", "M2", "M3", "M4", "M5"];
+    const machineOrder = ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11"];
 
     // Group items by their selected machine using the LATEST data
     const grouped = latestCart.reduce((acc: { [key: string]: CartItem[] }, item) => {
@@ -748,14 +750,35 @@ export default function Calculator() {
                     {weight} kg
                   </Text>
                   <Text style={[styles.machineMappingText, { color: selectedMachine === weight ? 'rgba(255,255,255,0.8)' : colors.textSecondary }]}>
-                    ({weight === 12 ? (machineSelections['12'] || 'Select M') : MACHINE_MAPPING[weight]})
+                    ({machineSelections[weight.toString()] || (weight === 10.5 ? 'M1' : weight === 24 ? 'M5' : 'Select M')})
                   </Text>
                 </TouchableOpacity>
 
-                {/* Machine Selector for 12kg */}
+                {/* Sub-Machine Selector for 6kg */}
+                {selectedMachine === 6 && weight === 6 && (
+                  <View style={styles.subMachineButtons}>
+                    {['M4', 'M10', 'M11'].map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[
+                          styles.subMachineButton,
+                          { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                          machineSelections['6'] === m && { backgroundColor: colors.accent, borderColor: colors.accent },
+                        ]}
+                        onPress={() => setMachineSelections(prev => ({ ...prev, '6': m }))}
+                      >
+                        <Text style={[styles.subMachineButtonText, { color: machineSelections['6'] === m ? '#fff' : colors.text }]}>
+                          {m}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* Sub-Machine Selector for 12kg */}
                 {selectedMachine === 12 && weight === 12 && (
                   <View style={styles.subMachineButtons}>
-                    {['M2', 'M3'].map((m) => (
+                    {['M2', 'M3', 'M8', 'M9'].map((m) => (
                       <TouchableOpacity
                         key={m}
                         style={[
@@ -766,6 +789,27 @@ export default function Calculator() {
                         onPress={() => setMachineSelections(prev => ({ ...prev, '12': m }))}
                       >
                         <Text style={[styles.subMachineButtonText, { color: machineSelections['12'] === m ? '#fff' : colors.text }]}>
+                          {m}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* Sub-Machine Selector for 15kg */}
+                {selectedMachine === 15 && weight === 15 && (
+                  <View style={styles.subMachineButtons}>
+                    {['M6', 'M7'].map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[
+                          styles.subMachineButton,
+                          { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                          machineSelections['15'] === m && { backgroundColor: colors.accent, borderColor: colors.accent },
+                        ]}
+                        onPress={() => setMachineSelections(prev => ({ ...prev, '15': m }))}
+                      >
+                        <Text style={[styles.subMachineButtonText, { color: machineSelections['15'] === m ? '#fff' : colors.text }]}>
                           {m}
                         </Text>
                       </TouchableOpacity>
@@ -847,7 +891,7 @@ export default function Calculator() {
                   Assign to Machine:
                 </Text>
                 <View style={styles.subMachineButtons}>
-                  {['M1', 'M2', 'M3', 'M4', 'M5'].map((m) => (
+                  {['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11'].map((m) => (
                     <TouchableOpacity
                       key={m}
                       style={[

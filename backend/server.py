@@ -124,7 +124,7 @@ class MachineTask(BaseModel):
     duration: Optional[str] = None    # e.g., "45 min" or "1h 20m"
     status: Optional[str] = "pending"  # pending/in-progress/completed/rejected
     type: Optional[str] = "manual"     # manual/automatic
-    machine: Optional[str] = None      # M1-M5 if specifically routed
+    machine: Optional[str] = None      # M1-M11 if specifically routed
 
 class DailyTask(BaseModel):
     id: Optional[str] = None
@@ -134,6 +134,12 @@ class DailyTask(BaseModel):
     m3: Optional[List[MachineTask]] = []
     m4: Optional[List[MachineTask]] = []
     m5: Optional[List[MachineTask]] = []
+    m6: Optional[List[MachineTask]] = []
+    m7: Optional[List[MachineTask]] = []
+    m8: Optional[List[MachineTask]] = []
+    m9: Optional[List[MachineTask]] = []
+    m10: Optional[List[MachineTask]] = []
+    m11: Optional[List[MachineTask]] = []
     automatic_tasks: Optional[List[MachineTask]] = []
     created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
 
@@ -144,6 +150,12 @@ class DailyTaskCreate(BaseModel):
     m3: Optional[List[MachineTask]] = []
     m4: Optional[List[MachineTask]] = []
     m5: Optional[List[MachineTask]] = []
+    m6: Optional[List[MachineTask]] = []
+    m7: Optional[List[MachineTask]] = []
+    m8: Optional[List[MachineTask]] = []
+    m9: Optional[List[MachineTask]] = []
+    m10: Optional[List[MachineTask]] = []
+    m11: Optional[List[MachineTask]] = []
     automatic_tasks: Optional[List[MachineTask]] = []
 
 
@@ -300,7 +312,7 @@ async def calculate_all_machines(shade_id: str):
             raise HTTPException(status_code=404, detail="Shade not found")
         
         original_weight = shade["original_weight"]
-        machine_weights = [6, 10.5, 12, 24]
+        machine_weights = [6, 10.5, 12, 15, 24]
         
         machines_data = {}
         
@@ -371,6 +383,12 @@ def daily_task_helper(task) -> dict:
         "m3": task.get("m3"),
         "m4": task.get("m4"),
         "m5": task.get("m5"),
+        "m6": task.get("m6"),
+        "m7": task.get("m7"),
+        "m8": task.get("m8"),
+        "m9": task.get("m9"),
+        "m10": task.get("m10"),
+        "m11": task.get("m11"),
         "automatic_tasks": task.get("automatic_tasks", []),
         "created_at": task.get("created_at")
     }
@@ -464,6 +482,12 @@ async def generate_daily_task_pdf(task_id: str):
             'm3': {'name': 'M3', 'capacity': 12, 'springs': 8},
             'm4': {'name': 'M4', 'capacity': 6, 'springs': 4},
             'm5': {'name': 'M5', 'capacity': 24, 'springs': 16},
+            'm6': {'name': 'M6', 'capacity': 15, 'springs': 10},
+            'm7': {'name': 'M7', 'capacity': 15, 'springs': 10},
+            'm8': {'name': 'M8', 'capacity': 12, 'springs': 8},
+            'm9': {'name': 'M9', 'capacity': 12, 'springs': 8},
+            'm10': {'name': 'M10', 'capacity': 6, 'springs': 4},
+            'm11': {'name': 'M11', 'capacity': 6, 'springs': 4},
         }
         
         # Create PDF buffer
@@ -503,7 +527,7 @@ async def generate_daily_task_pdf(task_id: str):
         # Machine tasks
         automatic_tasks = task.get("automatic_tasks", [])
 
-        for machine_key in ['m1', 'm2', 'm3', 'm4', 'm5']:
+        for machine_key in ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']:
             machine_tasks = task.get(machine_key, [])
             auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_key]
             combined_tasks = machine_tasks + auto_for_machine
@@ -575,6 +599,12 @@ async def get_whatsapp_text(task_id: str):
             'm3': {'name': 'M3', 'capacity': 12},
             'm4': {'name': 'M4', 'capacity': 6},
             'm5': {'name': 'M5', 'capacity': 24},
+            'm6': {'name': 'M6', 'capacity': 15},
+            'm7': {'name': 'M7', 'capacity': 15},
+            'm8': {'name': 'M8', 'capacity': 12},
+            'm9': {'name': 'M9', 'capacity': 12},
+            'm10': {'name': 'M10', 'capacity': 6},
+            'm11': {'name': 'M11', 'capacity': 6},
         }
         
         # Build message
@@ -584,7 +614,7 @@ async def get_whatsapp_text(task_id: str):
         
         automatic_tasks = task.get("automatic_tasks", [])
 
-        for machine_key in ['m1', 'm2', 'm3', 'm4', 'm5']:
+        for machine_key in ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']:
             machine_tasks = task.get(machine_key, [])
             auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_key]
             combined_tasks = machine_tasks + auto_for_machine
@@ -711,7 +741,13 @@ async def calculate_payment(task_id: str, rate_per_kg: float = 8.0):
             'm2': 12,
             'm3': 12,
             'm4': 6,
-            'm5': 24
+            'm5': 24,
+            'm6': 15,
+            'm7': 15,
+            'm8': 12,
+            'm9': 12,
+            'm10': 6,
+            'm11': 6,
         }
         
         completed_kg = 0
@@ -783,7 +819,7 @@ async def rollover_pending_tasks(from_date: str, to_date: str):
         # Get or create tasks for target date
         to_task = await db.daily_tasks.find_one({"date": to_date})
         
-        machines = ['m1', 'm2', 'm3', 'm4', 'm5']
+        machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
         moved_count = 0
         
         # 1. Rollover Manual Tasks

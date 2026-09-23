@@ -16,6 +16,12 @@ const MACHINES = [
   { id: 'm3', name: 'M3', capacity: 12, totalSprings: 8 },
   { id: 'm4', name: 'M4', capacity: 6, totalSprings: 4 },
   { id: 'm5', name: 'M5', capacity: 24, totalSprings: 16 },
+  { id: 'm6', name: 'M6', capacity: 15, totalSprings: 10 },
+  { id: 'm7', name: 'M7', capacity: 15, totalSprings: 10 },
+  { id: 'm8', name: 'M8', capacity: 12, totalSprings: 8 },
+  { id: 'm9', name: 'M9', capacity: 12, totalSprings: 8 },
+  { id: 'm10', name: 'M10', capacity: 6, totalSprings: 4 },
+  { id: 'm11', name: 'M11', capacity: 6, totalSprings: 4 },
 ];
 
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -125,7 +131,7 @@ export default function DyeingMaster() {
 
       if (yesterdayData.id) {
         let hasPending = false;
-        const machines = ['m1', 'm2', 'm3', 'm4', 'm5'];
+        const machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11'];
         for (const m of machines) {
           const tasks = yesterdayData[m] || [];
           if (tasks.some((t: any) => t.status === 'pending' || !t.status)) {
@@ -174,7 +180,7 @@ export default function DyeingMaster() {
       // Otherwise, we merge with current local "draft" values.
       const nextInputs = isInitialLoad ? {} : { ...prev };
       
-      const machines = ['m1', 'm2', 'm3', 'm4', 'm5'];
+      const machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11'];
       machines.forEach(machineId => {
         const tasks = task[machineId] || [];
         tasks.forEach((t: any, index: number) => {
@@ -229,6 +235,12 @@ export default function DyeingMaster() {
         m3: dailyTask.m3 || [],
         m4: dailyTask.m4 || [],
         m5: dailyTask.m5 || [],
+        m6: dailyTask.m6 || [],
+        m7: dailyTask.m7 || [],
+        m8: dailyTask.m8 || [],
+        m9: dailyTask.m9 || [],
+        m10: dailyTask.m10 || [],
+        m11: dailyTask.m11 || [],
         automatic_tasks: newAutoTasks,
       };
 

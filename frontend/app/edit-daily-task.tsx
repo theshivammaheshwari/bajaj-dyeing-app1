@@ -24,6 +24,12 @@ const MACHINES = [
   { id: 'm3', name: 'M3', capacity: 12, totalSprings: 8 },
   { id: 'm4', name: 'M4', capacity: 6, totalSprings: 4 },
   { id: 'm5', name: 'M5', capacity: 24, totalSprings: 16 },
+  { id: 'm6', name: 'M6', capacity: 15, totalSprings: 10 },
+  { id: 'm7', name: 'M7', capacity: 15, totalSprings: 10 },
+  { id: 'm8', name: 'M8', capacity: 12, totalSprings: 8 },
+  { id: 'm9', name: 'M9', capacity: 12, totalSprings: 8 },
+  { id: 'm10', name: 'M10', capacity: 6, totalSprings: 4 },
+  { id: 'm11', name: 'M11', capacity: 6, totalSprings: 4 },
 ];
 
 interface Shade {
@@ -79,6 +85,12 @@ export default function EditDailyTask() {
     m3: Array.from({ length: 5 }, (_, i) => emptyTask('m3', i)),
     m4: Array.from({ length: 5 }, (_, i) => emptyTask('m4', i)),
     m5: Array.from({ length: 5 }, (_, i) => emptyTask('m5', i)),
+    m6: Array.from({ length: 5 }, (_, i) => emptyTask('m6', i)),
+    m7: Array.from({ length: 5 }, (_, i) => emptyTask('m7', i)),
+    m8: Array.from({ length: 5 }, (_, i) => emptyTask('m8', i)),
+    m9: Array.from({ length: 5 }, (_, i) => emptyTask('m9', i)),
+    m10: Array.from({ length: 5 }, (_, i) => emptyTask('m10', i)),
+    m11: Array.from({ length: 5 }, (_, i) => emptyTask('m11', i)),
   });
 
   const maxRows = Math.max(...Object.values(machineTasks).map(tasks => tasks.length), 5);
