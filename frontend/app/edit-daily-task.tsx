@@ -80,6 +80,7 @@ export default function EditDailyTask() {
   const [loading, setLoading] = useState(false);
   const [activeTask, setActiveTask] = useState<{ machineId: string; taskId: string } | null>(null);
   const [saveError, setSaveError] = useState('');
+  const [selectedMaster, setSelectedMaster] = useState<'user1' | 'user2'>('user1');
 
   const [machineTasks, setMachineTasks] = useState<{ [key: string]: MachineTaskData[] }>({
     m1: Array.from({ length: 5 }, (_, i) => emptyTask('m1', i)),
@@ -107,10 +108,13 @@ export default function EditDailyTask() {
 
   useEffect(() => {
     fetchShades();
+  }, []);
+
+  useEffect(() => {
     if (taskId) {
       fetchExistingTask();
     }
-  }, [taskId]);
+  }, [taskId, selectedMaster]);
 
   const fetchExistingTask = async () => {
     try {
@@ -123,9 +127,12 @@ export default function EditDailyTask() {
         setDate(data.date);
         const newMachineTasks: { [key: string]: MachineTaskData[] } = {};
         MACHINES.forEach(m => {
-          const apiTasks = data[m.id] || [];
+          const rawTasks = data[m.id] || [];
+          const apiTasks = rawTasks.filter((t: any) =>
+            selectedMaster === 'user2' ? t.assigned_to === 'user2' : (t.assigned_to === 'user1' || !t.assigned_to)
+          );
           newMachineTasks[m.id] = apiTasks.map((t: any, idx: number) => ({
-            id: `${m.id}-${idx}`,
+            id: t.id || `${m.id}-${idx}`,
             shadeId: t.shade_id || '',
             shadeNumber: t.shade_number ? String(t.shade_number) : '',
             springs2ply: t.springs_2ply !== undefined ? String(t.springs_2ply) : '0',
@@ -140,10 +147,10 @@ export default function EditDailyTask() {
             start_time: t.start_time || null,
             end_time: t.end_time || null,
             duration: t.duration || null,
-            assigned_to: t.assigned_to || 'user1',
+            assigned_to: t.assigned_to || selectedMaster,
           }));
           while (newMachineTasks[m.id].length < 5) {
-            newMachineTasks[m.id].push(emptyTask(m.id, newMachineTasks[m.id].length));
+            newMachineTasks[m.id].push(emptyTask(m.id, newMachineTasks[m.id].length, selectedMaster));
           }
         });
         setMachineTasks(newMachineTasks);
@@ -271,12 +278,17 @@ export default function EditDailyTask() {
       }
     }
 
-    const payload: any = { date };
-    let hasData = false;
-    for (const machine of MACHINES) {
-      const tasks = machineTasks[machine.id].filter(t => t.shadeId !== '');
-      if (tasks.length > 0) {
-        payload[machine.id] = tasks.map(t => ({
+    setLoading(true);
+    try {
+      const getRes = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${date}`);
+      const existingData = await getRes.json();
+
+      const payload: any = { date };
+      let hasData = false;
+      for (const machine of MACHINES) {
+        const tasks = machineTasks[machine.id].filter(t => t.shadeId !== '');
+        const validTasks = tasks.map(t => ({
+          id: t.id?.includes('-') ? (Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11)) : t.id,
           shade_id: t.shadeId, 
           shade_number: t.shadeNumber,
           springs_2ply: parseInt(t.springs2ply) || 0,
@@ -285,22 +297,25 @@ export default function EditDailyTask() {
           completed_at: t.completed_at,
           carried_forward: t.carried_forward,
           original_date: t.original_date,
-          // Preserve other fields if they were loaded
           status: t.status || 'pending',
           start_time: t.start_time,
           end_time: t.end_time,
           duration: t.duration,
-          assigned_to: t.assigned_to || 'user1',
+          assigned_to: selectedMaster,
         }));
-        hasData = true;
-      } else { payload[machine.id] = []; }
-    }
-    if (!hasData) {
-      setSaveError('No tasks added');
-      return;
-    }
-    setLoading(true);
-    try {
+
+        const existingForMachine = (existingData && existingData.id && existingData[machine.id]) ? existingData[machine.id] : [];
+        const otherMasterTasks = existingForMachine.filter((t: any) =>
+          selectedMaster === 'user2' ? (t.assigned_to === 'user1' || !t.assigned_to) : (t.assigned_to === 'user2')
+        );
+
+        payload[machine.id] = [...otherMasterTasks, ...validTasks];
+        if (payload[machine.id].length > 0) hasData = true;
+      }
+
+      const existingAuto = (existingData && existingData.id && existingData.automatic_tasks) ? existingData.automatic_tasks : [];
+      payload.automatic_tasks = existingAuto;
+
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -344,6 +359,34 @@ export default function EditDailyTask() {
               placeholderTextColor={colors.textSecondary}
             />
           </View>
+        </View>
+
+        {/* Master Selector */}
+        <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 15, paddingVertical: 10, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              borderRadius: 8,
+              backgroundColor: selectedMaster === 'user1' ? '#3182CE' : colors.inputBackground,
+              alignItems: 'center',
+            }}
+            onPress={() => setSelectedMaster('user1')}
+          >
+            <Text style={{ fontWeight: 'bold', color: selectedMaster === 'user1' ? '#fff' : colors.text }}>Dyeing Master 1</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              borderRadius: 8,
+              backgroundColor: selectedMaster === 'user2' ? '#805AD5' : colors.inputBackground,
+              alignItems: 'center',
+            }}
+            onPress={() => setSelectedMaster('user2')}
+          >
+            <Text style={{ fontWeight: 'bold', color: selectedMaster === 'user2' ? '#fff' : colors.text }}>Dyeing Master 2</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView

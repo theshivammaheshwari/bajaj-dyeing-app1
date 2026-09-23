@@ -69,7 +69,7 @@ export default function DailyTasks() {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('');
   const [taskTypeFilter, setTaskTypeFilter] = useState<'all' | 'manual' | 'automatic'>('all');
-  const [masterFilter, setMasterFilter] = useState<'all' | 'user1' | 'user2'>('all');
+  const [masterFilter, setMasterFilter] = useState<'user1' | 'user2'>('user1');
 
   useEffect(() => {
     fetchTasks();
@@ -165,19 +165,17 @@ export default function DailyTasks() {
 
   const handlePdfDownload = (task: DailyTask) => {
     if (Platform.OS === 'web') {
-      printDailyTaskPdf(task, masterFilter !== 'all' ? masterFilter : undefined);
+      printDailyTaskPdf(task, masterFilter);
     } else {
       // Fallback: use backend PDF for native
-      const param = masterFilter !== 'all' ? `?assigned_to=${masterFilter}` : '';
-      const pdfUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${task.id}/pdf${param}`;
+      const pdfUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${task.id}/pdf?assigned_to=${masterFilter}`;
       WebBrowser.openBrowserAsync(pdfUrl);
     }
   };
 
   const handleWhatsAppShare = async (id: string) => {
     try {
-      const param = masterFilter !== 'all' ? `?assigned_to=${masterFilter}` : '';
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${id}/whatsapp-text${param}`);
+      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${id}/whatsapp-text?assigned_to=${masterFilter}`);
       const data = await response.json();
       if (data.text) {
         const encodedText = encodeURIComponent(data.text);
@@ -416,22 +414,16 @@ export default function DailyTasks() {
         {/* Dyeing Master Filter Toggle */}
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
           <TouchableOpacity
-            style={[styles.actionBtn, { flex: 1, backgroundColor: masterFilter === 'all' ? colors.primary : colors.card, borderColor: colors.border, borderWidth: 1 }]}
-            onPress={() => setMasterFilter('all')}
-          >
-            <Text style={{ textAlign: 'center', fontWeight: '600', fontSize: 12, color: masterFilter === 'all' ? '#fff' : colors.text }}>All Masters</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             style={[styles.actionBtn, { flex: 1, backgroundColor: masterFilter === 'user1' ? '#3182CE' : colors.card, borderColor: colors.border, borderWidth: 1 }]}
             onPress={() => setMasterFilter('user1')}
           >
-            <Text style={{ textAlign: 'center', fontWeight: '600', fontSize: 12, color: masterFilter === 'user1' ? '#fff' : colors.text }}>Master 1</Text>
+            <Text style={{ textAlign: 'center', fontWeight: '600', fontSize: 13, color: masterFilter === 'user1' ? '#fff' : colors.text }}>Master 1</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.actionBtn, { flex: 1, backgroundColor: masterFilter === 'user2' ? '#805AD5' : colors.card, borderColor: colors.border, borderWidth: 1 }]}
             onPress={() => setMasterFilter('user2')}
           >
-            <Text style={{ textAlign: 'center', fontWeight: '600', fontSize: 12, color: masterFilter === 'user2' ? '#fff' : colors.text }}>Master 2</Text>
+            <Text style={{ textAlign: 'center', fontWeight: '600', fontSize: 13, color: masterFilter === 'user2' ? '#fff' : colors.text }}>Master 2</Text>
           </TouchableOpacity>
         </View>
 

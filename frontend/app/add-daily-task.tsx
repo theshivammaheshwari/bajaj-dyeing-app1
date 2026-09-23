@@ -105,12 +105,15 @@ export default function AddDailyTask() {
 
   useEffect(() => {
     fetchShades();
+  }, []);
+
+  useEffect(() => {
     fetchExistingTask();
-  }, [date]);
+  }, [date, selectedMaster]);
 
   const fetchExistingTask = async () => {
     try {
-      console.log('Fetching tasks for date:', date);
+      console.log('Fetching tasks for date:', date, 'and master:', selectedMaster);
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${date}`);
       const data = await response.json();
 
@@ -118,9 +121,12 @@ export default function AddDailyTask() {
         console.log('Found existing task:', data.id);
         const newMachineTasks: { [key: string]: MachineTaskData[] } = {};
         MACHINES.forEach(m => {
-          const apiTasks = data[m.id] || [];
+          const rawTasks = data[m.id] || [];
+          const apiTasks = rawTasks.filter((t: any) =>
+            selectedMaster === 'user2' ? t.assigned_to === 'user2' : (t.assigned_to === 'user1' || !t.assigned_to)
+          );
           newMachineTasks[m.id] = apiTasks.map((t: any, idx: number) => ({
-            id: `${m.id}-${idx}`,
+            id: t.id || `${m.id}-${idx}`,
             shadeId: t.shade_id || '',
             shadeNumber: t.shade_number ? String(t.shade_number) : '',
             springs2ply: t.springs_2ply !== undefined ? String(t.springs_2ply) : '0',
@@ -134,7 +140,12 @@ export default function AddDailyTask() {
           }
         });
         setMachineTasks(newMachineTasks);
-        setExistingAutomaticTasks(data.automatic_tasks || []);
+        
+        const rawAuto = data.automatic_tasks || [];
+        const filteredAuto = rawAuto.filter((t: any) =>
+          selectedMaster === 'user2' ? t.assigned_to === 'user2' : (t.assigned_to === 'user1' || !t.assigned_to)
+        );
+        setExistingAutomaticTasks(filteredAuto);
       } else {
         console.log('No tasks found for this date, resetting grid');
         setMachineTasks(initialMachineTasks());
@@ -352,7 +363,9 @@ export default function AddDailyTask() {
         }
 
         const existingForMachine = (existingData && existingData.id && existingData[machine.id]) ? existingData[machine.id] : [];
-        const otherMasterTasks = existingForMachine.filter((t: any) => (t.assigned_to && t.assigned_to !== selectedMaster) || (!t.assigned_to && selectedMaster !== 'user1'));
+        const otherMasterTasks = existingForMachine.filter((t: any) =>
+          selectedMaster === 'user2' ? (t.assigned_to === 'user1' || !t.assigned_to) : (t.assigned_to === 'user2')
+        );
 
         payload[machine.id] = [...otherMasterTasks, ...validTasks];
         if (payload[machine.id].length > 0) {
@@ -360,13 +373,14 @@ export default function AddDailyTask() {
         }
       }
 
-      if (!hasData && existingAutomaticTasks.length === 0) {
+      const existingAuto = (existingData && existingData.id && existingData.automatic_tasks) ? existingData.automatic_tasks : [];
+      if (!hasData && existingAuto.length === 0) {
         setSaveError('Please add at least one task');
         setLoading(false);
         return;
       }
 
-      payload.automatic_tasks = existingAutomaticTasks;
+      payload.automatic_tasks = existingAuto;
 
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks`, {
         method: 'POST',

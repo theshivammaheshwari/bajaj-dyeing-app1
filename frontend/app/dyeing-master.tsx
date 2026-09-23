@@ -82,13 +82,13 @@ export default function DyeingMaster() {
   const [assigningMachine, setAssigningMachine] = useState<{ [key: number]: string }>({});
   const [userRole, setUserRole] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>('Dyeing Master');
-  const [adminFilterMaster, setAdminFilterMaster] = useState<'all' | 'user1' | 'user2'>('all');
+  const [adminFilterMaster, setAdminFilterMaster] = useState<'user1' | 'user2'>('user1');
 
   useEffect(() => {
     const loadRole = async () => {
       const role = await AsyncStorage.getItem('userRole');
       const name = await AsyncStorage.getItem('userName');
-      setUserRole(role);
+      setUserRole(role || 'user1');
       if (name) setUserName(name);
     };
     loadRole();
@@ -98,19 +98,16 @@ export default function DyeingMaster() {
     if (userRole === 'user2') return 'user2';
     if (userRole === 'user1' || userRole === 'user') return 'user1';
     if (userRole === 'admin') return adminFilterMaster;
-    return 'all';
+    return 'user1';
   };
 
   const filterTasksForMaster = (tasks: any[]) => {
     if (!tasks) return [];
     const master = getEffectiveMaster();
-    if (master === 'user1') {
-      return tasks.filter((t: any) => t.assigned_to === 'user1' || !t.assigned_to);
-    }
     if (master === 'user2') {
       return tasks.filter((t: any) => t.assigned_to === 'user2');
     }
-    return tasks;
+    return tasks.filter((t: any) => t.assigned_to === 'user1' || !t.assigned_to);
   };
 
   const handleLogout = async () => {
@@ -145,12 +142,13 @@ export default function DyeingMaster() {
   };
 
   useEffect(() => {
+    if (!userRole) return;
     if (date === new Date().toISOString().split('T')[0]) {
       checkAndRollover();
     } else {
       fetchTodayTask(true);
     }
-  }, [date]);
+  }, [date, userRole, adminFilterMaster]);
 
   const checkAndRollover = async () => {
     try {
@@ -300,20 +298,13 @@ export default function DyeingMaster() {
   const fetchPayment = async (taskId: string) => {
     try {
       const master = getEffectiveMaster();
-      const param = master !== 'all' ? `?assigned_to=${master}` : '';
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}/payment-calculation${param}`);
+      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}/payment-calculation?assigned_to=${master}`);
       const data = await response.json();
       setPayment(data);
     } catch (error) {
       console.error('Payment error:', error);
     }
   };
-
-  useEffect(() => {
-    if (dailyTask?.id) {
-      fetchPayment(dailyTask.id);
-    }
-  }, [adminFilterMaster]);
 
   const updateLocalWeight = (machineId: string, taskId: string, field: 'ply2' | 'ply3', value: string) => {
     const key = `${machineId}-${taskId}`;
@@ -509,46 +500,31 @@ export default function DyeingMaster() {
           <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
             <TouchableOpacity
               style={{
-                paddingHorizontal: 10,
-                paddingVertical: 5,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
                 borderRadius: 16,
                 borderWidth: 1.5,
-                borderColor: adminFilterMaster === 'all' ? colors.primary : colors.border,
-                backgroundColor: adminFilterMaster === 'all' ? colors.primaryLight : colors.card,
-              }}
-              onPress={() => setAdminFilterMaster('all')}
-            >
-              <Text style={{ fontSize: 11, fontWeight: 'bold', color: adminFilterMaster === 'all' ? colors.primary : colors.text }}>
-                All
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{
-                paddingHorizontal: 10,
-                paddingVertical: 5,
-                borderRadius: 16,
-                borderWidth: 1.5,
-                borderColor: adminFilterMaster === 'user1' ? colors.primary : colors.border,
-                backgroundColor: adminFilterMaster === 'user1' ? colors.primaryLight : colors.card,
+                borderColor: adminFilterMaster === 'user1' ? '#3182CE' : colors.border,
+                backgroundColor: adminFilterMaster === 'user1' ? '#3182CE' : colors.card,
               }}
               onPress={() => setAdminFilterMaster('user1')}
             >
-              <Text style={{ fontSize: 11, fontWeight: 'bold', color: adminFilterMaster === 'user1' ? colors.primary : colors.text }}>
+              <Text style={{ fontSize: 12, fontWeight: 'bold', color: adminFilterMaster === 'user1' ? '#fff' : colors.text }}>
                 Master 1
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={{
-                paddingHorizontal: 10,
-                paddingVertical: 5,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
                 borderRadius: 16,
                 borderWidth: 1.5,
-                borderColor: adminFilterMaster === 'user2' ? colors.primary : colors.border,
-                backgroundColor: adminFilterMaster === 'user2' ? colors.primaryLight : colors.card,
+                borderColor: adminFilterMaster === 'user2' ? '#805AD5' : colors.border,
+                backgroundColor: adminFilterMaster === 'user2' ? '#805AD5' : colors.card,
               }}
               onPress={() => setAdminFilterMaster('user2')}
             >
-              <Text style={{ fontSize: 11, fontWeight: 'bold', color: adminFilterMaster === 'user2' ? colors.primary : colors.text }}>
+              <Text style={{ fontSize: 12, fontWeight: 'bold', color: adminFilterMaster === 'user2' ? '#fff' : colors.text }}>
                 Master 2
               </Text>
             </TouchableOpacity>
