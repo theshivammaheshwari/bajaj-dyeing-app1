@@ -17,7 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 
 const ADMIN_PASSWORD = '1987';
-const USER_PASSWORD = '3020';
+const MASTER_1_PASSWORD = '3020';
+const MASTER_2_PASSWORD = '6922';
 
 export default function Login() {
   const router = useRouter();
@@ -36,16 +37,23 @@ export default function Login() {
     setLoading(true);
 
     let role = '';
+    let userName = '';
     if (password === ADMIN_PASSWORD) {
       role = 'admin';
-    } else if (password === USER_PASSWORD) {
-      role = 'user';
+      userName = 'Admin';
+    } else if (password === MASTER_1_PASSWORD) {
+      role = 'user1';
+      userName = 'Dyeing Master 1';
+    } else if (password === MASTER_2_PASSWORD) {
+      role = 'user2';
+      userName = 'Dyeing Master 2';
     }
 
     if (role) {
       try {
         await AsyncStorage.setItem('isAuthenticated', 'true');
         await AsyncStorage.setItem('userRole', role);
+        await AsyncStorage.setItem('userName', userName);
 
         setTimeout(() => {
           if (typeof window !== 'undefined') {

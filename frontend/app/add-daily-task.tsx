@@ -90,6 +90,7 @@ export default function AddDailyTask() {
   const [saveError, setSaveError] = useState('');
   
   const [activeTab, setActiveTab] = useState<'manual' | 'automatic'>('manual');
+  const [selectedMaster, setSelectedMaster] = useState<'user1' | 'user2'>('user1');
   
   const [autoAssignRows, setAutoAssignRows] = useState<AutoAssignRow[]>([]);
   const [existingAutomaticTasks, setExistingAutomaticTasks] = useState<any[]>([]);
@@ -321,43 +322,52 @@ export default function AddDailyTask() {
       }
     }
 
-    const payload: any = { date };
-    let hasData = false;
+    setLoading(true);
+    try {
+      // Fetch latest tasks for this date to preserve other master's tasks if any
+      const getRes = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${date}`);
+      const existingData = await getRes.json();
 
-    for (const machine of MACHINES) {
-      const tasks = machineTasks[machine.id];
-      const validTasks = [];
+      const payload: any = { date };
+      let hasData = false;
 
-      for (const task of tasks) {
-        if (task.shadeId) {
-          const ply2 = parseInt(task.springs2ply) || 0;
-          const ply3 = parseInt(task.springs3ply) || 0;
-          validTasks.push({
-            id: Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11),
-            shade_id: task.shadeId,
-            shade_number: task.shadeNumber,
-            springs_2ply: ply2,
-            springs_3ply: ply3,
-            weight: machine.capacity,
-          });
+      for (const machine of MACHINES) {
+        const tasks = machineTasks[machine.id];
+        const validTasks: any[] = [];
+
+        for (const task of tasks) {
+          if (task.shadeId) {
+            const ply2 = parseInt(task.springs2ply) || 0;
+            const ply3 = parseInt(task.springs3ply) || 0;
+            validTasks.push({
+              id: Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11),
+              shade_id: task.shadeId,
+              shade_number: task.shadeNumber,
+              springs_2ply: ply2,
+              springs_3ply: ply3,
+              weight: machine.capacity,
+              assigned_to: selectedMaster,
+            });
+          }
+        }
+
+        const existingForMachine = (existingData && existingData.id && existingData[machine.id]) ? existingData[machine.id] : [];
+        const otherMasterTasks = existingForMachine.filter((t: any) => (t.assigned_to && t.assigned_to !== selectedMaster) || (!t.assigned_to && selectedMaster !== 'user1'));
+
+        payload[machine.id] = [...otherMasterTasks, ...validTasks];
+        if (payload[machine.id].length > 0) {
+          hasData = true;
         }
       }
 
-      if (validTasks.length > 0) {
-        payload[machine.id] = validTasks;
-        hasData = true;
+      if (!hasData && existingAutomaticTasks.length === 0) {
+        setSaveError('Please add at least one task');
+        setLoading(false);
+        return;
       }
-    }
 
-    if (!hasData && existingAutomaticTasks.length === 0) {
-      setSaveError('Please add at least one task');
-      return;
-    }
+      payload.automatic_tasks = existingAutomaticTasks;
 
-    payload.automatic_tasks = existingAutomaticTasks;
-
-    setLoading(true);
-    try {
       const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -413,7 +423,8 @@ export default function AddDailyTask() {
         springs_3ply: parseInt(row.springs3ply) || 0,
         weight: row.weight,
         type: 'automatic',
-        machine: null
+        machine: null,
+        assigned_to: selectedMaster,
       }));
 
       const payload = {
@@ -507,6 +518,43 @@ export default function AddDailyTask() {
                 placeholderTextColor={colors.textSecondary}
               />
             </View>
+          </View>
+        </View>
+
+        {/* Master Selector Row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingTop: 10 }}>
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.textSecondary }}>Assign To Master:</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 7,
+                borderRadius: 20,
+                borderWidth: 1.5,
+                borderColor: selectedMaster === 'user1' ? colors.primary : colors.border,
+                backgroundColor: selectedMaster === 'user1' ? colors.primaryLight : colors.card,
+              }}
+              onPress={() => setSelectedMaster('user1')}
+            >
+              <Text style={{ fontSize: 12, fontWeight: 'bold', color: selectedMaster === 'user1' ? colors.primary : colors.text }}>
+                Dyeing Master 1
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                paddingHorizontal: 14,
+                paddingVertical: 7,
+                borderRadius: 20,
+                borderWidth: 1.5,
+                borderColor: selectedMaster === 'user2' ? colors.primary : colors.border,
+                backgroundColor: selectedMaster === 'user2' ? colors.primaryLight : colors.card,
+              }}
+              onPress={() => setSelectedMaster('user2')}
+            >
+              <Text style={{ fontSize: 12, fontWeight: 'bold', color: selectedMaster === 'user2' ? colors.primary : colors.text }}>
+                Dyeing Master 2
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 

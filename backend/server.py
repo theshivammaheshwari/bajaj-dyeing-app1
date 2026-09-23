@@ -125,6 +125,7 @@ class MachineTask(BaseModel):
     status: Optional[str] = "pending"  # pending/in-progress/completed/rejected
     type: Optional[str] = "manual"     # manual/automatic
     machine: Optional[str] = None      # M1-M11 if specifically routed
+    assigned_to: Optional[str] = "user1"  # "user1" or "user2" (default to "user1")
 
 class DailyTask(BaseModel):
     id: Optional[str] = None
@@ -468,8 +469,8 @@ async def delete_daily_task(task_id: str):
 
 
 @api_router.get("/daily-tasks/{task_id}/pdf")
-async def generate_daily_task_pdf(task_id: str):
-    """Generate PDF for a daily task"""
+async def generate_daily_task_pdf(task_id: str, assigned_to: Optional[str] = None):
+    """Generate PDF for a daily task, optionally filtered by dyeing master"""
     try:
         task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
         if not task:
@@ -531,6 +532,10 @@ async def generate_daily_task_pdf(task_id: str):
             machine_tasks = task.get(machine_key, [])
             auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_key]
             combined_tasks = machine_tasks + auto_for_machine
+            
+            if assigned_to:
+                combined_tasks = [t for t in combined_tasks if t.get('assigned_to') == assigned_to or (assigned_to == 'user1' and not t.get('assigned_to'))]
+            
             info = machine_info[machine_key]
             
             elements.append(Paragraph(
@@ -586,8 +591,8 @@ async def generate_daily_task_pdf(task_id: str):
 
 
 @api_router.get("/daily-tasks/{task_id}/whatsapp-text")
-async def get_whatsapp_text(task_id: str):
-    """Generate WhatsApp shareable text for a daily task"""
+async def get_whatsapp_text(task_id: str, assigned_to: Optional[str] = None):
+    """Generate WhatsApp shareable text for a daily task, optionally filtered by dyeing master"""
     try:
         task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
         if not task:
@@ -607,8 +612,14 @@ async def get_whatsapp_text(task_id: str):
             'm11': {'name': 'M11', 'capacity': 6},
         }
         
+        master_title = ""
+        if assigned_to == 'user1':
+            master_title = " (Dyeing Master 1)"
+        elif assigned_to == 'user2':
+            master_title = " (Dyeing Master 2)"
+
         # Build message
-        message = f"🎨 *Bajaj Dyeing Unit - Daily Task*\n"
+        message = f"🎨 *Bajaj Dyeing Unit - Daily Task{master_title}*\n"
         message += f"📅 *Date:* {task['date']}\n"
         message += "─" * 25 + "\n\n"
         
@@ -618,6 +629,10 @@ async def get_whatsapp_text(task_id: str):
             machine_tasks = task.get(machine_key, [])
             auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_key]
             combined_tasks = machine_tasks + auto_for_machine
+            
+            if assigned_to:
+                combined_tasks = [t for t in combined_tasks if t.get('assigned_to') == assigned_to or (assigned_to == 'user1' and not t.get('assigned_to'))]
+            
             info = machine_info[machine_key]
             
             if combined_tasks:
@@ -654,6 +669,7 @@ async def update_machine_task(
     shade_number: Optional[str] = None,
     original_shade_number: Optional[str] = None,
     is_modified: Optional[bool] = None,
+    assigned_to: Optional[str] = None,
 ):
     """Update a specific machine task (weight, timing, status)"""
     try:
@@ -715,6 +731,8 @@ async def update_machine_task(
             machine_tasks[task_index]["original_shade_number"] = original_shade_number
         if is_modified is not None:
             machine_tasks[task_index]["is_modified"] = is_modified
+        if assigned_to is not None:
+            machine_tasks[task_index]["assigned_to"] = assigned_to
         
         # Update in database
         await db.daily_tasks.update_one(
@@ -728,8 +746,8 @@ async def update_machine_task(
 
 
 @api_router.get("/daily-tasks/{task_id}/payment-calculation")
-async def calculate_payment(task_id: str, rate_per_kg: float = 8.0):
-    """Calculate payment for completed tasks based on machine capacity"""
+async def calculate_payment(task_id: str, rate_per_kg: float = 8.0, assigned_to: Optional[str] = None):
+    """Calculate payment for completed tasks based on machine capacity, optionally filtered by dyeing master"""
     try:
         daily_task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
         if not daily_task:
@@ -761,6 +779,9 @@ async def calculate_payment(task_id: str, rate_per_kg: float = 8.0):
             tasks = daily_task.get(machine_id, [])
             auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_id]
             combined_tasks = tasks + auto_for_machine
+            
+            if assigned_to:
+                combined_tasks = [t for t in combined_tasks if t.get('assigned_to') == assigned_to or (assigned_to == 'user1' and not t.get('assigned_to'))]
             
             for task in combined_tasks:
                 shade_num = str(task.get('shade_number', '')).lower()

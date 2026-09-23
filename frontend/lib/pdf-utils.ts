@@ -24,6 +24,7 @@ interface TaskForPdf {
   status?: string;
   ply2_weight?: number;
   ply3_weight?: number;
+  assigned_to?: string;
 }
 
 interface DailyTaskForPdf {
@@ -230,31 +231,36 @@ const CSS_STYLES = `
 
 function buildGridHTML(
   taskData: DailyTaskForPdf,
-  options: { showStatus?: boolean; showWeights?: boolean; onlyCompleted?: boolean } = {}
+  options: { showStatus?: boolean; showWeights?: boolean; onlyCompleted?: boolean; assigned_to?: string } = {}
 ): string {
-  const { showStatus = false, showWeights = false, onlyCompleted = false } = options;
+  const { showStatus = false, showWeights = false, onlyCompleted = false, assigned_to } = options;
+
+  const filterTasks = (tasks: any[]) => {
+    let res = tasks || [];
+    if (onlyCompleted) {
+      res = res.filter((t: any) => t.status === 'completed');
+    }
+    if (assigned_to) {
+      res = res.filter((t: any) => t.assigned_to === assigned_to || (assigned_to === 'user1' && !t.assigned_to));
+    }
+    return res;
+  };
 
   // Determine max rows
   let maxRows = 1;
   MACHINES.forEach(m => {
-    let tasks = (taskData as any)[m.id] || [];
-    if (onlyCompleted) {
-      tasks = tasks.filter((t: any) => t.status === 'completed');
-    }
+    let tasks = filterTasks((taskData as any)[m.id]);
     maxRows = Math.max(maxRows, tasks.length);
   });
 
   if (maxRows === 0) {
-    return '<p style="color: #6B7A94; text-align: center; padding: 30px;">No completed tasks for this date.</p>';
+    return '<p style="color: #6B7A94; text-align: center; padding: 30px;">No tasks found for this selection.</p>';
   }
 
   // Machine headers
   let headerCells = '<th class="row-num-header">#</th>';
   MACHINES.forEach(m => {
-    let tasks = (taskData as any)[m.id] || [];
-    if (onlyCompleted) {
-      tasks = tasks.filter((t: any) => t.status === 'completed');
-    }
+    let tasks = filterTasks((taskData as any)[m.id]);
     const totalUsed = tasks.reduce((s: number, t: any) => s + (t.springs_2ply || 0) + (t.springs_3ply || 0), 0);
     headerCells += `
       <th>
@@ -268,10 +274,7 @@ function buildGridHTML(
   for (let r = 0; r < maxRows; r++) {
     bodyRows += `<tr><td class="row-num">${r + 1}</td>`;
     MACHINES.forEach(m => {
-      let tasks = (taskData as any)[m.id] || [];
-      if (onlyCompleted) {
-        tasks = tasks.filter((t: any) => t.status === 'completed');
-      }
+      let tasks = filterTasks((taskData as any)[m.id]);
       const task = tasks[r];
 
       if (task) {
@@ -351,11 +354,13 @@ export function printDailyTaskPdf(task: DailyTaskForPdf): void {
 /**
  * Generate & print completed tasks PDF from Dyeing Master (only completed tasks).
  */
-export function printCompletedTasksPdf(taskData: DailyTaskForPdf, date: string): void {
+export function printCompletedTasksPdf(taskData: DailyTaskForPdf, date: string, assigned_to?: string): void {
+  const masterSuffix = assigned_to === 'user1' ? ' (Dyeing Master 1)' : assigned_to === 'user2' ? ' (Dyeing Master 2)' : '';
   const gridHTML = buildGridHTML(taskData, {
     showStatus: true,
     showWeights: true,
     onlyCompleted: true,
+    assigned_to,
   });
 
   const html = `<!DOCTYPE html><html><head>
@@ -366,7 +371,7 @@ export function printCompletedTasksPdf(taskData: DailyTaskForPdf, date: string):
     <div class="report-header">
       <div>
         <h1>BAJAJ DYEING UNIT</h1>
-        <div class="subtitle">Daily Completed Tasks Report</div>
+        <div class="subtitle">Daily Completed Tasks Report${masterSuffix}</div>
       </div>
       <div class="date-badge">📅 ${date}</div>
     </div>
@@ -382,11 +387,13 @@ export function printCompletedTasksPdf(taskData: DailyTaskForPdf, date: string):
 /**
  * Generate & print ALL tasks (with status) from Dyeing Master.
  */
-export function printAllTasksPdf(taskData: DailyTaskForPdf, date: string): void {
+export function printAllTasksPdf(taskData: DailyTaskForPdf, date: string, assigned_to?: string): void {
+  const masterSuffix = assigned_to === 'user1' ? ' (Dyeing Master 1)' : assigned_to === 'user2' ? ' (Dyeing Master 2)' : '';
   const gridHTML = buildGridHTML(taskData, {
     showStatus: true,
     showWeights: true,
     onlyCompleted: false,
+    assigned_to,
   });
 
   const html = `<!DOCTYPE html><html><head>
@@ -397,7 +404,7 @@ export function printAllTasksPdf(taskData: DailyTaskForPdf, date: string): void 
     <div class="report-header">
       <div>
         <h1>BAJAJ DYEING UNIT</h1>
-        <div class="subtitle">Daily Tasks Report — All Status</div>
+        <div class="subtitle">Daily Tasks Report — All Status${masterSuffix}</div>
       </div>
       <div class="date-badge">📅 ${date}</div>
     </div>

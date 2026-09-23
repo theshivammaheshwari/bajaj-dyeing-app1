@@ -91,6 +91,7 @@ export default function Calculator() {
   const [isSending, setIsSending] = useState(false);
   const [showAssignDateModal, setShowAssignDateModal] = useState(false);
   const [assignDate, setAssignDate] = useState<string>('');
+  const [assignMaster, setAssignMaster] = useState<'user1' | 'user2'>('user1');
 
   const showAlert = (title: string, message: string, onOk?: () => void) => {
     if (Platform.OS === 'web') {
@@ -111,6 +112,11 @@ export default function Calculator() {
     let activeDate = await AsyncStorage.getItem('active_working_date');
     const today = new Date().toISOString().split('T')[0];
     setAssignDate(activeDate || today);
+    if (userRole === 'user2') {
+      setAssignMaster('user2');
+    } else {
+      setAssignMaster('user1');
+    }
     setShowAssignDateModal(true);
   };
 
@@ -151,7 +157,8 @@ export default function Calculator() {
           weight: item.weight,
           status: 'pending',
           type: 'cart-assigned',
-          machine: item.machine
+          machine: item.machine,
+          assigned_to: assignMaster,
         };
 
         if (existingTask[machineKey]) {
@@ -1207,6 +1214,47 @@ export default function Calculator() {
               <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 8, textAlign: 'center' }}>
                 Format: YYYY-MM-DD
               </Text>
+            </View>
+
+            {/* Dyeing Master Selector */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8, fontWeight: '600' }}>
+                Assign to Dyeing Master
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: assignMaster === 'user1' ? colors.primary : colors.border,
+                    backgroundColor: assignMaster === 'user1' ? colors.primaryLight : colors.inputBackground,
+                    alignItems: 'center'
+                  }}
+                  onPress={() => setAssignMaster('user1')}
+                >
+                  <Text style={{ fontWeight: 'bold', fontSize: 13, color: assignMaster === 'user1' ? colors.primary : colors.text }}>
+                    Master 1
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    paddingVertical: 12,
+                    borderRadius: 10,
+                    borderWidth: 1.5,
+                    borderColor: assignMaster === 'user2' ? colors.primary : colors.border,
+                    backgroundColor: assignMaster === 'user2' ? colors.primaryLight : colors.inputBackground,
+                    alignItems: 'center'
+                  }}
+                  onPress={() => setAssignMaster('user2')}
+                >
+                  <Text style={{ fontWeight: 'bold', fontSize: 13, color: assignMaster === 'user2' ? colors.primary : colors.text }}>
+                    Master 2
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={{ flexDirection: 'row', gap: 12 }}>

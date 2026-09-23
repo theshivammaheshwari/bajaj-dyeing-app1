@@ -53,9 +53,10 @@ interface MachineTaskData {
   start_time?: string | null;
   end_time?: string | null;
   duration?: string | null;
+  assigned_to?: string;
 }
 
-const emptyTask = (machineId: string, index: number): MachineTaskData => ({
+const emptyTask = (machineId: string, index: number, assigned_to: string = 'user1'): MachineTaskData => ({
   id: `${machineId}-${index}`,
   shadeId: '',
   shadeNumber: '',
@@ -67,6 +68,7 @@ const emptyTask = (machineId: string, index: number): MachineTaskData => ({
   completed_at: null,
   carried_forward: false,
   original_date: null,
+  assigned_to: assigned_to,
 });
 
 export default function EditDailyTask() {
@@ -138,6 +140,7 @@ export default function EditDailyTask() {
             start_time: t.start_time || null,
             end_time: t.end_time || null,
             duration: t.duration || null,
+            assigned_to: t.assigned_to || 'user1',
           }));
           while (newMachineTasks[m.id].length < 5) {
             newMachineTasks[m.id].push(emptyTask(m.id, newMachineTasks[m.id].length));
@@ -287,6 +290,7 @@ export default function EditDailyTask() {
           start_time: t.start_time,
           end_time: t.end_time,
           duration: t.duration,
+          assigned_to: t.assigned_to || 'user1',
         }));
         hasData = true;
       } else { payload[machine.id] = []; }

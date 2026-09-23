@@ -53,10 +53,10 @@ function RootLayoutContent() {
       } else {
         // Role-based access control
         const isAdminRoute = ['/', '/daily-tasks', '/add-daily-task', '/edit-daily-task', '/add-shade', '/edit-shade'].includes(pathname);
-        const isUserRoute = ['/dyeing-master', '/calculator'].includes(pathname);
+        const isMaster = userRole === 'user' || userRole === 'user1' || userRole === 'user2';
 
-        if (userRole === 'user' && isAdminRoute) {
-          console.log('User attempting to access Admin route, redirecting to dyeing-master');
+        if (isMaster && isAdminRoute) {
+          console.log('Dyeing master attempting to access Admin route, redirecting to dyeing-master');
           router.replace('/dyeing-master');
         } else if (userRole === 'admin' && pathname === '/dyeing-master') {
           // Admin can see dyeing-master if they want, but home is /

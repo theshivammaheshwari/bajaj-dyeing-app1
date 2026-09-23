@@ -80,7 +80,39 @@ export default function DyeingMaster() {
   const [editingShade, setEditingShade] = useState<string | null>(null);
   const [editingShadeText, setEditingShadeText] = useState<string>('');
   const [assigningMachine, setAssigningMachine] = useState<{ [key: number]: string }>({});
-  
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>('Dyeing Master');
+  const [adminFilterMaster, setAdminFilterMaster] = useState<'all' | 'user1' | 'user2'>('all');
+
+  useEffect(() => {
+    const loadRole = async () => {
+      const role = await AsyncStorage.getItem('userRole');
+      const name = await AsyncStorage.getItem('userName');
+      setUserRole(role);
+      if (name) setUserName(name);
+    };
+    loadRole();
+  }, []);
+
+  const getEffectiveMaster = () => {
+    if (userRole === 'user2') return 'user2';
+    if (userRole === 'user1' || userRole === 'user') return 'user1';
+    if (userRole === 'admin') return adminFilterMaster;
+    return 'all';
+  };
+
+  const filterTasksForMaster = (tasks: any[]) => {
+    if (!tasks) return [];
+    const master = getEffectiveMaster();
+    if (master === 'user1') {
+      return tasks.filter((t: any) => t.assigned_to === 'user1' || !t.assigned_to);
+    }
+    if (master === 'user2') {
+      return tasks.filter((t: any) => t.assigned_to === 'user2');
+    }
+    return tasks;
+  };
+
   const handleLogout = async () => {
     const performLogout = async () => {
       await AsyncStorage.removeItem('isAuthenticated');
@@ -267,13 +299,21 @@ export default function DyeingMaster() {
 
   const fetchPayment = async (taskId: string) => {
     try {
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}/payment-calculation`);
+      const master = getEffectiveMaster();
+      const param = master !== 'all' ? `?assigned_to=${master}` : '';
+      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}/payment-calculation${param}`);
       const data = await response.json();
       setPayment(data);
     } catch (error) {
       console.error('Payment error:', error);
     }
   };
+
+  useEffect(() => {
+    if (dailyTask?.id) {
+      fetchPayment(dailyTask.id);
+    }
+  }, [adminFilterMaster]);
 
   const updateLocalWeight = (machineId: string, taskId: string, field: 'ply2' | 'ply3', value: string) => {
     const key = `${machineId}-${taskId}`;
@@ -456,10 +496,65 @@ export default function DyeingMaster() {
             resizeMode="contain"
           />
           <View>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>Dyeing Master</Text>
-            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>Worker Panel</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
+              {userRole === 'user2' ? 'Dyeing Master 2' : userRole === 'admin' ? 'Dyeing Master (Admin)' : 'Dyeing Master 1'}
+            </Text>
+            <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+              {userRole === 'admin' ? 'Management Panel' : 'Worker Panel'}
+            </Text>
           </View>
         </View>
+
+        {userRole === 'admin' && (
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <TouchableOpacity
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: adminFilterMaster === 'all' ? colors.primary : colors.border,
+                backgroundColor: adminFilterMaster === 'all' ? colors.primaryLight : colors.card,
+              }}
+              onPress={() => setAdminFilterMaster('all')}
+            >
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: adminFilterMaster === 'all' ? colors.primary : colors.text }}>
+                All
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: adminFilterMaster === 'user1' ? colors.primary : colors.border,
+                backgroundColor: adminFilterMaster === 'user1' ? colors.primaryLight : colors.card,
+              }}
+              onPress={() => setAdminFilterMaster('user1')}
+            >
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: adminFilterMaster === 'user1' ? colors.primary : colors.text }}>
+                Master 1
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                borderRadius: 16,
+                borderWidth: 1.5,
+                borderColor: adminFilterMaster === 'user2' ? colors.primary : colors.border,
+                backgroundColor: adminFilterMaster === 'user2' ? colors.primaryLight : colors.card,
+              }}
+              onPress={() => setAdminFilterMaster('user2')}
+            >
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: adminFilterMaster === 'user2' ? colors.primary : colors.text }}>
+                Master 2
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         <TouchableOpacity style={[styles.logoutButton, { backgroundColor: colors.danger }]} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
@@ -479,13 +574,13 @@ export default function DyeingMaster() {
           <View style={styles.pdfButtonRow}>
             <TouchableOpacity
               style={[styles.pdfButton, { backgroundColor: colors.success }]}
-              onPress={() => printCompletedTasksPdf(dailyTask, date)}
+              onPress={() => printCompletedTasksPdf(dailyTask, date, getEffectiveMaster() !== 'all' ? getEffectiveMaster() : undefined)}
             >
               <Text style={styles.pdfButtonText}>📄 Completed PDF</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.pdfButton, { backgroundColor: colors.primary }]}
-              onPress={() => printAllTasksPdf(dailyTask, date)}
+              onPress={() => printAllTasksPdf(dailyTask, date, getEffectiveMaster() !== 'all' ? getEffectiveMaster() : undefined)}
             >
               <Text style={styles.pdfButtonText}>📄 All Tasks PDF</Text>
             </TouchableOpacity>
@@ -527,9 +622,10 @@ export default function DyeingMaster() {
                 <Text style={[styles.rowNumberText, { color: colors.textSecondary }]}>#</Text>
               </View>
               {MACHINES.map(machine => {
-                const tasks = activeTab === 'manual'
+                const rawTasks = activeTab === 'manual'
                   ? (dailyTask?.[machine.id] || [])
                   : (dailyTask?.automatic_tasks || []).filter((t: any) => t.machine === machine.id);
+                const tasks = filterTasksForMaster(rawTasks);
                 
                 const totalSpringsUsed = tasks.reduce(
                   (sum: number, task: any) => sum + (task.springs_2ply || 0) + (task.springs_3ply || 0),
@@ -559,17 +655,18 @@ export default function DyeingMaster() {
             ) : (
               Array.from({ 
                 length: activeTab === 'manual' 
-                  ? Math.max(5, ...MACHINES.map(m => (dailyTask?.[m.id] || []).length)) 
-                  : Math.max(1, ...MACHINES.map(m => (dailyTask?.automatic_tasks || []).filter((t:any) => t.machine === m.id).length)) 
+                  ? Math.max(5, ...MACHINES.map(m => filterTasksForMaster(dailyTask?.[m.id] || []).length)) 
+                  : Math.max(1, ...MACHINES.map(m => filterTasksForMaster((dailyTask?.automatic_tasks || []).filter((t:any) => t.machine === m.id)).length)) 
               }).map((_, rowIndex) => (
                 <View key={rowIndex} style={styles.gridRow}>
                   <View style={styles.rowNumberCell}>
                     <Text style={[styles.rowNumberText, { color: colors.textSecondary }]}>{rowIndex + 1}</Text>
                   </View>
                   {MACHINES.map(machine => {
-                    const tasks = activeTab === 'manual'
+                    const rawTasks = activeTab === 'manual'
                       ? (dailyTask?.[machine.id] || [])
                       : (dailyTask?.automatic_tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx})).filter((t: any) => t.machine === machine.id);
+                    const tasks = filterTasksForMaster(rawTasks);
                     const task = tasks[rowIndex];
                     const targetMachineForApi = activeTab === 'manual' ? machine.id : 'automatic_tasks';
                     const targetIndexForApi = activeTab === 'manual' ? rowIndex : (task ? task.originalIndex : 0);
@@ -859,13 +956,13 @@ export default function DyeingMaster() {
       {activeTab === 'automatic' && (
         <ScrollView style={{ paddingHorizontal: 15, paddingTop: 10, maxHeight: 250 }}>
           <Text style={{ fontWeight: 'bold', fontSize: 16, marginBottom: 10, color: colors.text }}>⚡ Unassigned Automatic Tasks</Text>
-          {!dailyTask?.automatic_tasks || dailyTask.automatic_tasks.filter((t:any) => !t.machine).length === 0 ? (
+          {filterTasksForMaster((dailyTask?.automatic_tasks || []).filter((t:any) => !t.machine)).length === 0 ? (
             <Text style={{ textAlign: 'center', marginBottom: 20, color: colors.textSecondary }}>No Unassigned Tasks</Text>
           ) : (
-            dailyTask.automatic_tasks.map((task: any, index: number) => {
+            filterTasksForMaster((dailyTask?.automatic_tasks || []).map((t: any, idx: number) => ({ ...t, originalIndex: idx }))).map((task: any, index: number) => {
               if (task.machine) return null;
               return (
-              <View key={index} style={{ backgroundColor: colors.card, padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
+              <View key={task.id || index} style={{ backgroundColor: colors.card, padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: colors.border }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
                   <Text style={{ fontWeight: 'bold', fontSize: 16, color: colors.text }}>Shade #{task.shade_number}</Text>
                   <Text style={{ color: colors.textSecondary }}>Weight: {task.weight} kg</Text>
@@ -888,8 +985,8 @@ export default function DyeingMaster() {
                     {Platform.OS === 'web' ? (
                       <select
                         style={{ padding: 8, borderRadius: 6, borderColor: colors.border, borderWidth: 1, backgroundColor: colors.inputBackground, color: colors.text }}
-                        value={assigningMachine[index] || ''}
-                        onChange={(e) => setAssigningMachine(prev => ({ ...prev, [index]: e.target.value }))}
+                        value={assigningMachine[task.originalIndex ?? index] || ''}
+                        onChange={(e) => setAssigningMachine(prev => ({ ...prev, [task.originalIndex ?? index]: e.target.value }))}
                       >
                         <option value="">-- Machine --</option>
                         {MACHINES.map(m => (
@@ -905,7 +1002,7 @@ export default function DyeingMaster() {
                   </View>
                   <TouchableOpacity
                     style={{ backgroundColor: colors.primary, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, justifyContent: 'center' }}
-                    onPress={() => handleAssignAutomaticToMachine(index)}
+                    onPress={() => handleAssignAutomaticToMachine(task.originalIndex ?? index)}
                   >
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>Assign to Machine</Text>
                   </TouchableOpacity>
