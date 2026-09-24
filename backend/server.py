@@ -749,29 +749,105 @@ class PaymentRatesUpdate(BaseModel):
     normal_rate: float = 8.0
     rejected_rate: float = 8.0
     black_return_rate: float = 4.0
+    effective_date: Optional[str] = None
 
 
-@api_router.get("/settings/rates")
-async def get_payment_rates():
-    """Fetch current dynamic payment rates set by owner"""
+async def get_rates_for_date(target_date: str):
+    """Retrieve the rates effective on a specific date (YYYY-MM-DD)"""
     rates_doc = await db.settings.find_one({"type": "payment_rates"})
     if not rates_doc:
         return {
             "normal_rate": 8.0,
             "rejected_rate": 8.0,
-            "black_return_rate": 4.0
+            "black_return_rate": 4.0,
+            "effective_date": "2020-01-01"
         }
+    
+    history = rates_doc.get("history", [])
+    if history:
+        # Sort descending by effective_date
+        sorted_history = sorted(history, key=lambda x: str(x.get("effective_date", "")), reverse=True)
+        for entry in sorted_history:
+            if str(entry.get("effective_date", "")) <= str(target_date):
+                return {
+                    "normal_rate": float(entry.get("normal_rate", 8.0)),
+                    "rejected_rate": float(entry.get("rejected_rate", 8.0)),
+                    "black_return_rate": float(entry.get("black_return_rate", 4.0)),
+                    "effective_date": entry.get("effective_date")
+                }
+        # If target_date is older than earliest history entry, return earliest history entry
+        earliest = sorted_history[-1]
+        return {
+            "normal_rate": float(earliest.get("normal_rate", 8.0)),
+            "rejected_rate": float(earliest.get("rejected_rate", 8.0)),
+            "black_return_rate": float(earliest.get("black_return_rate", 4.0)),
+            "effective_date": earliest.get("effective_date")
+        }
+    
+    # Fallback to top-level rates
     return {
         "normal_rate": float(rates_doc.get("normal_rate", 8.0)),
         "rejected_rate": float(rates_doc.get("rejected_rate", 8.0)),
-        "black_return_rate": float(rates_doc.get("black_return_rate", 4.0))
+        "black_return_rate": float(rates_doc.get("black_return_rate", 4.0)),
+        "effective_date": rates_doc.get("effective_date", "2020-01-01")
+    }
+
+
+@api_router.get("/settings/rates")
+async def get_payment_rates(date: Optional[str] = None):
+    """Fetch current dynamic payment rates set by owner, optionally for a specific date"""
+    rates_doc = await db.settings.find_one({"type": "payment_rates"})
+    target_date = date or datetime.utcnow().strftime("%Y-%m-%d")
+    current = await get_rates_for_date(target_date)
+    history = rates_doc.get("history", []) if rates_doc else []
+    sorted_history = sorted(history, key=lambda x: str(x.get("effective_date", "")), reverse=True)
+    return {
+        "normal_rate": current["normal_rate"],
+        "rejected_rate": current["rejected_rate"],
+        "black_return_rate": current["black_return_rate"],
+        "effective_date": current.get("effective_date", target_date),
+        "history": sorted_history
     }
 
 
 @api_router.put("/settings/rates")
 async def update_payment_rates(rates: PaymentRatesUpdate):
-    """Update dynamic payment rates set by owner"""
+    """Update dynamic payment rates with an effective start date to protect past payments"""
     try:
+        effective_date = rates.effective_date.strip() if (rates.effective_date and rates.effective_date.strip()) else datetime.utcnow().strftime("%Y-%m-%d")
+        rates_doc = await db.settings.find_one({"type": "payment_rates"})
+        history = rates_doc.get("history", []) if rates_doc else []
+        
+        # If history was empty, add initial baseline if effective_date > 2020-01-01
+        if not history and effective_date > "2020-01-01":
+            history.append({
+                "effective_date": "2020-01-01",
+                "normal_rate": float(rates_doc.get("normal_rate", 8.0)) if rates_doc else 8.0,
+                "rejected_rate": float(rates_doc.get("rejected_rate", 8.0)) if rates_doc else 8.0,
+                "black_return_rate": float(rates_doc.get("black_return_rate", 4.0)) if rates_doc else 4.0,
+                "updated_at": datetime.utcnow().isoformat()
+            })
+
+        # Check if an entry for this exact effective_date already exists
+        existing_idx = -1
+        for i, entry in enumerate(history):
+            if entry.get("effective_date") == effective_date:
+                existing_idx = i
+                break
+                
+        new_entry = {
+            "effective_date": effective_date,
+            "normal_rate": rates.normal_rate,
+            "rejected_rate": rates.rejected_rate,
+            "black_return_rate": rates.black_return_rate,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        if existing_idx >= 0:
+            history[existing_idx] = new_entry
+        else:
+            history.append(new_entry)
+            
         await db.settings.update_one(
             {"type": "payment_rates"},
             {"$set": {
@@ -779,28 +855,32 @@ async def update_payment_rates(rates: PaymentRatesUpdate):
                 "normal_rate": rates.normal_rate,
                 "rejected_rate": rates.rejected_rate,
                 "black_return_rate": rates.black_return_rate,
+                "effective_date": effective_date,
+                "history": history,
                 "updated_at": datetime.utcnow().isoformat()
             }},
             upsert=True
         )
-        return {"message": "Payment rates updated successfully", "rates": rates.dict()}
+        return {"message": "Payment rates updated successfully", "rates": new_entry}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @api_router.get("/daily-tasks/{task_id}/payment-calculation")
 async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
-    """Calculate payment for completed tasks based on machine capacity & dynamic owner rates"""
+    """Calculate payment for completed tasks based on machine capacity & rates effective on the task date"""
     try:
         daily_task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
         if not daily_task:
             raise HTTPException(status_code=404, detail="Daily task not found")
         
-        # Fetch dynamic rates from database
-        rates_doc = await db.settings.find_one({"type": "payment_rates"})
-        normal_rate = float(rates_doc.get("normal_rate", 8.0)) if rates_doc else 8.0
-        rejected_rate = float(rates_doc.get("rejected_rate", 8.0)) if rates_doc else 8.0
-        black_return_rate = float(rates_doc.get("black_return_rate", 4.0)) if rates_doc else 4.0
+        task_date = str(daily_task.get("date", datetime.utcnow().strftime("%Y-%m-%d")))
+        
+        # Fetch dynamic rates effective on the task's specific date
+        active_rates = await get_rates_for_date(task_date)
+        normal_rate = active_rates["normal_rate"]
+        rejected_rate = active_rates["rejected_rate"]
+        black_return_rate = active_rates["black_return_rate"]
 
         # Machine capacities in kg
         machine_capacities = {

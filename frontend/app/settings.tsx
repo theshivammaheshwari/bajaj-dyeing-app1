@@ -18,6 +18,14 @@ import { useTheme } from '../context/ThemeContext';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 
+interface RateHistoryItem {
+  effective_date: string;
+  normal_rate: number;
+  rejected_rate: number;
+  black_return_rate: number;
+  updated_at?: string;
+}
+
 export default function Settings() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -25,6 +33,8 @@ export default function Settings() {
   const [normalRate, setNormalRate] = useState('8');
   const [rejectedRate, setRejectedRate] = useState('8');
   const [blackReturnRate, setBlackReturnRate] = useState('4');
+  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
+  const [history, setHistory] = useState<RateHistoryItem[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -43,6 +53,12 @@ export default function Settings() {
         setNormalRate(data.normal_rate !== undefined ? String(data.normal_rate) : '8');
         setRejectedRate(data.rejected_rate !== undefined ? String(data.rejected_rate) : '8');
         setBlackReturnRate(data.black_return_rate !== undefined ? String(data.black_return_rate) : '4');
+        if (data.effective_date) {
+          setEffectiveDate(data.effective_date);
+        }
+        if (data.history) {
+          setHistory(data.history);
+        }
       }
     } catch (error) {
       console.error('Error fetching rates:', error);
@@ -69,6 +85,10 @@ export default function Settings() {
       showAlert('Error', 'Please enter a valid rate for Black Return Completed');
       return;
     }
+    if (!effectiveDate || !effectiveDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      showAlert('Error', 'Please enter a valid Effective Date in YYYY-MM-DD format');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -79,12 +99,17 @@ export default function Settings() {
           normal_rate: nRate,
           rejected_rate: rRate,
           black_return_rate: brRate,
+          effective_date: effectiveDate.trim(),
         }),
       });
 
       if (response.ok) {
-        showAlert('Success', 'Payment rates saved successfully! All payment calculations will now use these updated rates.');
-        setMessage({ type: 'success', text: 'Rates updated successfully!' });
+        showAlert(
+          'Success',
+          `Payment rates saved successfully starting from ${effectiveDate}! Past daily tasks before this date will keep their previous rates.`
+        );
+        setMessage({ type: 'success', text: `Rates active from ${effectiveDate} saved!` });
+        fetchRates();
       } else {
         const err = await response.json();
         showAlert('Error', err.detail || 'Failed to save rates');
@@ -103,6 +128,7 @@ export default function Settings() {
     setNormalRate('8');
     setRejectedRate('8');
     setBlackReturnRate('4');
+    setEffectiveDate(new Date().toISOString().split('T')[0]);
   };
 
   const showAlert = (title: string, msg: string) => {
@@ -146,9 +172,9 @@ export default function Settings() {
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.introCard}>
-            <Text style={[styles.introTitle, { color: colors.primary }]}>💰 Payment Calculation Rates</Text>
+            <Text style={[styles.introTitle, { color: colors.primary }]}>💰 Dynamic Payment Rates</Text>
             <Text style={[styles.introSubtitle, { color: colors.textSecondary }]}>
-              Set the per-kg labor rate for Dyeing Masters. Once saved, all current and future calculations on the Dyeing Master page will automatically use these rates.
+              Set labor rates with an Effective Date. <Text style={{ fontWeight: 'bold' }}>Past daily tasks before the effective date will preserve their original rates</Text> and won't be modified.
             </Text>
           </View>
 
@@ -167,6 +193,25 @@ export default function Settings() {
 
           {/* Form Fields */}
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Effective Start Date */}
+            <View style={styles.fieldGroup}>
+              <View style={styles.fieldHeader}>
+                <Text style={[styles.fieldLabel, { color: colors.text }]}>📅 Apply Starting From Date (Effective Date)</Text>
+              </View>
+              <Text style={[styles.fieldHint, { color: colors.textSecondary }]}>
+                New rates will apply only on and after this date. Older tasks will keep their historical rate.
+              </Text>
+              <View style={[styles.inputWrap, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
+                <TextInput
+                  style={[styles.input, { color: colors.text }]}
+                  value={effectiveDate}
+                  onChangeText={setEffectiveDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
+
             {/* Field 1: Normal Completed */}
             <View style={styles.fieldGroup}>
               <View style={styles.fieldHeader}>
@@ -307,6 +352,40 @@ export default function Settings() {
               ))}
             </View>
           </View>
+
+          {/* Rate History Log Card */}
+          {history && history.length > 0 && (
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 15 }]}>
+              <Text style={[styles.previewTitle, { color: colors.text }]}>📜 Rate Change History</Text>
+              <Text style={[styles.fieldHint, { color: colors.textSecondary, marginBottom: 12 }]}>
+                Record of all historical rates and their effective start dates:
+              </Text>
+
+              <View style={styles.table}>
+                <View style={[styles.tableRow, styles.tableHeaderRow, { backgroundColor: '#4A5568' }]}>
+                  <Text style={[styles.th, { flex: 1.2, color: '#fff' }]}>Effective Date</Text>
+                  <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Normal</Text>
+                  <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Rejected</Text>
+                  <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Black Ret</Text>
+                </View>
+
+                {history.map((item, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.tableRow,
+                      { borderBottomColor: colors.border, backgroundColor: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)' },
+                    ]}
+                  >
+                    <Text style={[styles.td, { flex: 1.2, fontWeight: 'bold', color: colors.primary }]}>{item.effective_date}</Text>
+                    <Text style={[styles.td, { flex: 1, color: colors.text }]}>₹{item.normal_rate}/kg</Text>
+                    <Text style={[styles.td, { flex: 1, color: colors.text }]}>₹{item.rejected_rate}/kg</Text>
+                    <Text style={[styles.td, { flex: 1, color: colors.text }]}>₹{item.black_return_rate}/kg</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </ScrollView>
       )}
     </SafeAreaView>
