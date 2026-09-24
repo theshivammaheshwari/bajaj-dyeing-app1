@@ -745,14 +745,63 @@ async def update_machine_task(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class PaymentRatesUpdate(BaseModel):
+    normal_rate: float = 8.0
+    rejected_rate: float = 8.0
+    black_return_rate: float = 4.0
+
+
+@api_router.get("/settings/rates")
+async def get_payment_rates():
+    """Fetch current dynamic payment rates set by owner"""
+    rates_doc = await db.settings.find_one({"type": "payment_rates"})
+    if not rates_doc:
+        return {
+            "normal_rate": 8.0,
+            "rejected_rate": 8.0,
+            "black_return_rate": 4.0
+        }
+    return {
+        "normal_rate": float(rates_doc.get("normal_rate", 8.0)),
+        "rejected_rate": float(rates_doc.get("rejected_rate", 8.0)),
+        "black_return_rate": float(rates_doc.get("black_return_rate", 4.0))
+    }
+
+
+@api_router.put("/settings/rates")
+async def update_payment_rates(rates: PaymentRatesUpdate):
+    """Update dynamic payment rates set by owner"""
+    try:
+        await db.settings.update_one(
+            {"type": "payment_rates"},
+            {"$set": {
+                "type": "payment_rates",
+                "normal_rate": rates.normal_rate,
+                "rejected_rate": rates.rejected_rate,
+                "black_return_rate": rates.black_return_rate,
+                "updated_at": datetime.utcnow().isoformat()
+            }},
+            upsert=True
+        )
+        return {"message": "Payment rates updated successfully", "rates": rates.dict()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @api_router.get("/daily-tasks/{task_id}/payment-calculation")
-async def calculate_payment(task_id: str, rate_per_kg: float = 8.0, assigned_to: Optional[str] = None):
-    """Calculate payment for completed tasks based on machine capacity, optionally filtered by dyeing master"""
+async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
+    """Calculate payment for completed tasks based on machine capacity & dynamic owner rates"""
     try:
         daily_task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
         if not daily_task:
             raise HTTPException(status_code=404, detail="Daily task not found")
         
+        # Fetch dynamic rates from database
+        rates_doc = await db.settings.find_one({"type": "payment_rates"})
+        normal_rate = float(rates_doc.get("normal_rate", 8.0)) if rates_doc else 8.0
+        rejected_rate = float(rates_doc.get("rejected_rate", 8.0)) if rates_doc else 8.0
+        black_return_rate = float(rates_doc.get("black_return_rate", 4.0)) if rates_doc else 4.0
+
         # Machine capacities in kg
         machine_capacities = {
             'm1': 10.5,
@@ -768,9 +817,12 @@ async def calculate_payment(task_id: str, rate_per_kg: float = 8.0, assigned_to:
             'm11': 6,
         }
         
-        completed_kg = 0
+        normal_completed_kg = 0
+        black_return_kg = 0
         rejected_kg = 0
-        completed_tasks = 0
+
+        normal_completed_tasks = 0
+        black_return_tasks = 0
         rejected_tasks = 0
         
         automatic_tasks = daily_task.get("automatic_tasks", [])
@@ -789,38 +841,47 @@ async def calculate_payment(task_id: str, rate_per_kg: float = 8.0, assigned_to:
                 
                 if task.get('status') == 'completed':
                     if is_black_return:
-                        # Black return completed = half rate
-                        rejected_kg += capacity
-                        rejected_tasks += 1
+                        # Black return completed
+                        black_return_kg += capacity
+                        black_return_tasks += 1
                     else:
-                        # Normal completed = full rate
-                        completed_kg += capacity
-                        completed_tasks += 1
+                        # Normal completed
+                        normal_completed_kg += capacity
+                        normal_completed_tasks += 1
                 elif task.get('status') == 'rejected':
-                    # All rejected tasks = now full rate (as per new rule)
-                    # Requirement says: "Rejected Tasks: salary = weight * 8"
-                    # "Completed Tasks (Black return only): salary = weight * 4"
-                    # So I will count 'rejected' as 'completed_kg' to get the full rate
-                    completed_kg += capacity
-                    completed_tasks += 1
+                    # Rejected task
+                    rejected_kg += capacity
+                    rejected_tasks += 1
         
         # Calculations
-        completed_payment = completed_kg * rate_per_kg
-        rejected_payment = rejected_kg * (rate_per_kg / 2) # This is now ONLY for Black Return Completed
+        normal_completed_payment = normal_completed_kg * normal_rate
+        black_return_payment = black_return_kg * black_return_rate
+        rejected_payment = rejected_kg * rejected_rate
         
-        total_payment = completed_payment + rejected_payment
-        total_kg = completed_kg + rejected_kg
-        half_rate = rate_per_kg / 2
+        total_payment = normal_completed_payment + black_return_payment + rejected_payment
+        total_kg = normal_completed_kg + black_return_kg + rejected_kg
+        completed_kg = normal_completed_kg + black_return_kg
+        completed_payment = normal_completed_payment + black_return_payment
+        completed_tasks = normal_completed_tasks + black_return_tasks
         
         return {
             "total_kg": round(total_kg, 2),
             "completed_kg": round(completed_kg, 2),
+            "normal_completed_kg": round(normal_completed_kg, 2),
+            "black_return_kg": round(black_return_kg, 2),
             "rejected_kg": round(rejected_kg, 2),
-            "rate_per_kg": rate_per_kg,
-            "half_rate": round(half_rate, 2),
+            "normal_rate": normal_rate,
+            "rejected_rate": rejected_rate,
+            "black_return_rate": black_return_rate,
+            "rate_per_kg": normal_rate,
+            "half_rate": black_return_rate,
+            "normal_completed_payment": round(normal_completed_payment, 2),
+            "black_return_payment": round(black_return_payment, 2),
             "completed_payment": round(completed_payment, 2),
             "rejected_payment": round(rejected_payment, 2),
             "total_payment": round(total_payment, 2),
+            "normal_completed_tasks": normal_completed_tasks,
+            "black_return_tasks": black_return_tasks,
             "completed_tasks": completed_tasks,
             "rejected_tasks": rejected_tasks
         }

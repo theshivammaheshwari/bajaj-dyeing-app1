@@ -52,7 +52,7 @@ function RootLayoutContent() {
         router.replace(userRole === 'admin' ? '/' : '/dyeing-master');
       } else {
         // Role-based access control
-        const isAdminRoute = ['/', '/daily-tasks', '/add-daily-task', '/edit-daily-task', '/add-shade', '/edit-shade'].includes(pathname);
+        const isAdminRoute = ['/', '/daily-tasks', '/add-daily-task', '/edit-daily-task', '/add-shade', '/edit-shade', '/settings'].includes(pathname);
         const isMaster = userRole === 'user' || userRole === 'user1' || userRole === 'user2';
 
         if (isMaster && isAdminRoute) {

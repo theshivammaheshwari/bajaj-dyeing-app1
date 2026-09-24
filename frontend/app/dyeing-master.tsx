@@ -531,6 +531,22 @@ export default function DyeingMaster() {
           </View>
         )}
 
+        {userRole === 'admin' && (
+          <TouchableOpacity
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 8,
+              backgroundColor: colors.inputBackground,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+            onPress={() => router.push('/settings')}
+          >
+            <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.text }}>⚙️ Rates</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={[styles.logoutButton, { backgroundColor: colors.danger }]} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
@@ -905,20 +921,44 @@ export default function DyeingMaster() {
 
             {payment && (
               <View style={[styles.paymentCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}>
-                <Text style={[styles.paymentTitle, { color: colors.text }]}>💰 Payment Summary</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={[styles.paymentTitle, { color: colors.text, marginBottom: 0 }]}>💰 Payment Summary</Text>
+                  {userRole === 'admin' && (
+                    <TouchableOpacity
+                      onPress={() => router.push('/settings')}
+                      style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: colors.primaryLight }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: 'bold', color: colors.primary }}>⚙️ Edit Rates</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 <View style={styles.paymentFlex}>
-                  <View style={[styles.paymentStat, { backgroundColor: '#F0FFF4', borderRadius: 12, padding: 12 }]}>
-                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Completed</Text>
-                    <Text style={[styles.statValue, { color: colors.success }]}>₹{payment.completed_payment ?? 0}</Text>
-                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>{payment.completed_kg ?? 0} kg</Text>
+                  <View style={[styles.paymentStat, { backgroundColor: '#F0FFF4', borderRadius: 12, padding: 10, flex: 1 }]}>
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Normal Done</Text>
+                    <Text style={[styles.statValue, { color: colors.success }]}>₹{payment.normal_completed_payment ?? payment.completed_payment ?? 0}</Text>
+                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>
+                      {payment.normal_completed_kg ?? payment.completed_kg ?? 0} kg @ ₹{payment.normal_rate ?? 8}/kg
+                    </Text>
                   </View>
-                  <View style={[styles.paymentStat, { backgroundColor: '#FFF5F5', borderRadius: 12, padding: 12 }]}>
+
+                  <View style={[styles.paymentStat, { backgroundColor: '#EBF8FF', borderRadius: 12, padding: 10, flex: 1 }]}>
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Black Return</Text>
+                    <Text style={[styles.statValue, { color: colors.secondary }]}>₹{payment.black_return_payment ?? payment.rejected_payment ?? 0}</Text>
+                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>
+                      {payment.black_return_kg ?? 0} kg @ ₹{payment.black_return_rate ?? 4}/kg
+                    </Text>
+                  </View>
+
+                  <View style={[styles.paymentStat, { backgroundColor: '#FFF5F5', borderRadius: 12, padding: 10, flex: 1 }]}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Rejected</Text>
                     <Text style={[styles.statValue, { color: colors.danger }]}>₹{payment.rejected_payment ?? 0}</Text>
-                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>{payment.rejected_kg ?? 0} kg</Text>
+                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>
+                      {payment.rejected_kg ?? 0} kg @ ₹{payment.rejected_rate ?? 8}/kg
+                    </Text>
                   </View>
-                  <View style={[styles.paymentStat, { backgroundColor: colors.primaryLight, borderRadius: 12, padding: 12 }]}>
-                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Earnings</Text>
+
+                  <View style={[styles.paymentStat, { backgroundColor: colors.primaryLight, borderRadius: 12, padding: 10, flex: 1 }]}>
+                    <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Salary</Text>
                     <Text style={[styles.statValueTotal, { color: colors.primary }]}>₹{payment.total_payment ?? 0}</Text>
                     <Text style={[styles.statSub, { color: colors.textSecondary }]}>{payment.total_kg ?? 0} kg</Text>
                   </View>

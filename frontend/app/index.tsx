@@ -242,6 +242,14 @@ export default function Index() {
           <Text style={styles.quickActionIcon}>👨‍🏭</Text>
           <Text style={styles.quickActionText}>Dyeing Master</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#4A5568' }]}
+          onPress={() => router.push('/settings')}
+        >
+          <Text style={styles.quickActionIcon}>⚙️</Text>
+          <Text style={styles.quickActionText}>Rate Settings</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
