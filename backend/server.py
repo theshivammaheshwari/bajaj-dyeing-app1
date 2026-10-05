@@ -746,17 +746,24 @@ async def update_machine_task(
 
 
 class PaymentRatesUpdate(BaseModel):
+    master: Optional[str] = "user1"  # "user1" or "user2"
     normal_rate: float = 8.0
     rejected_rate: float = 8.0
     black_return_rate: float = 4.0
     effective_date: Optional[str] = None
 
 
-async def get_rates_for_date(target_date: str):
-    """Retrieve the rates effective on a specific date (YYYY-MM-DD)"""
-    rates_doc = await db.settings.find_one({"type": "payment_rates"})
+async def get_rates_for_date(target_date: str, master: Optional[str] = "user1"):
+    """Retrieve the rates effective on a specific date (YYYY-MM-DD) for a specific dyeing master (user1/user2)"""
+    m = master if master in ["user1", "user2"] else "user1"
+    rates_doc = await db.settings.find_one({"type": f"payment_rates_{m}"})
+    if not rates_doc and m == "user1":
+        # Fallback to legacy payment_rates document
+        rates_doc = await db.settings.find_one({"type": "payment_rates"})
+    
     if not rates_doc:
         return {
+            "master": m,
             "normal_rate": 8.0,
             "rejected_rate": 8.0,
             "black_return_rate": 4.0,
@@ -770,6 +777,7 @@ async def get_rates_for_date(target_date: str):
         for entry in sorted_history:
             if str(entry.get("effective_date", "")) <= str(target_date):
                 return {
+                    "master": m,
                     "normal_rate": float(entry.get("normal_rate", 8.0)),
                     "rejected_rate": float(entry.get("rejected_rate", 8.0)),
                     "black_return_rate": float(entry.get("black_return_rate", 4.0)),
@@ -778,6 +786,7 @@ async def get_rates_for_date(target_date: str):
         # If target_date is older than earliest history entry, return earliest history entry
         earliest = sorted_history[-1]
         return {
+            "master": m,
             "normal_rate": float(earliest.get("normal_rate", 8.0)),
             "rejected_rate": float(earliest.get("rejected_rate", 8.0)),
             "black_return_rate": float(earliest.get("black_return_rate", 4.0)),
@@ -786,6 +795,7 @@ async def get_rates_for_date(target_date: str):
     
     # Fallback to top-level rates
     return {
+        "master": m,
         "normal_rate": float(rates_doc.get("normal_rate", 8.0)),
         "rejected_rate": float(rates_doc.get("rejected_rate", 8.0)),
         "black_return_rate": float(rates_doc.get("black_return_rate", 4.0)),
@@ -794,14 +804,19 @@ async def get_rates_for_date(target_date: str):
 
 
 @api_router.get("/settings/rates")
-async def get_payment_rates(date: Optional[str] = None):
-    """Fetch current dynamic payment rates set by owner, optionally for a specific date"""
-    rates_doc = await db.settings.find_one({"type": "payment_rates"})
+async def get_payment_rates(date: Optional[str] = None, master: Optional[str] = "user1"):
+    """Fetch current dynamic payment rates set by owner for a specific dyeing master, optionally for a specific date"""
+    m = master if master in ["user1", "user2"] else "user1"
+    rates_doc = await db.settings.find_one({"type": f"payment_rates_{m}"})
+    if not rates_doc and m == "user1":
+        rates_doc = await db.settings.find_one({"type": "payment_rates"})
+        
     target_date = date or datetime.utcnow().strftime("%Y-%m-%d")
-    current = await get_rates_for_date(target_date)
+    current = await get_rates_for_date(target_date, master=m)
     history = rates_doc.get("history", []) if rates_doc else []
     sorted_history = sorted(history, key=lambda x: str(x.get("effective_date", "")), reverse=True)
     return {
+        "master": m,
         "normal_rate": current["normal_rate"],
         "rejected_rate": current["rejected_rate"],
         "black_return_rate": current["black_return_rate"],
@@ -812,10 +827,16 @@ async def get_payment_rates(date: Optional[str] = None):
 
 @api_router.put("/settings/rates")
 async def update_payment_rates(rates: PaymentRatesUpdate):
-    """Update dynamic payment rates with an effective start date to protect past payments"""
+    """Update dynamic payment rates for a specific dyeing master with an effective start date to protect past payments"""
     try:
+        m = rates.master if rates.master in ["user1", "user2"] else "user1"
         effective_date = rates.effective_date.strip() if (rates.effective_date and rates.effective_date.strip()) else datetime.utcnow().strftime("%Y-%m-%d")
-        rates_doc = await db.settings.find_one({"type": "payment_rates"})
+        
+        doc_type = f"payment_rates_{m}"
+        rates_doc = await db.settings.find_one({"type": doc_type})
+        if not rates_doc and m == "user1":
+            rates_doc = await db.settings.find_one({"type": "payment_rates"})
+            
         history = rates_doc.get("history", []) if rates_doc else []
         
         # If history was empty, add initial baseline if effective_date > 2020-01-01
@@ -848,27 +869,41 @@ async def update_payment_rates(rates: PaymentRatesUpdate):
         else:
             history.append(new_entry)
             
+        save_data = {
+            "type": doc_type,
+            "master": m,
+            "normal_rate": rates.normal_rate,
+            "rejected_rate": rates.rejected_rate,
+            "black_return_rate": rates.black_return_rate,
+            "effective_date": effective_date,
+            "history": history,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
         await db.settings.update_one(
-            {"type": "payment_rates"},
-            {"$set": {
-                "type": "payment_rates",
-                "normal_rate": rates.normal_rate,
-                "rejected_rate": rates.rejected_rate,
-                "black_return_rate": rates.black_return_rate,
-                "effective_date": effective_date,
-                "history": history,
-                "updated_at": datetime.utcnow().isoformat()
-            }},
+            {"type": doc_type},
+            {"$set": save_data},
             upsert=True
         )
-        return {"message": "Payment rates updated successfully", "rates": new_entry}
+        
+        # If updating user1, also keep generic payment_rates doc synchronized
+        if m == "user1":
+            legacy_data = dict(save_data)
+            legacy_data["type"] = "payment_rates"
+            await db.settings.update_one(
+                {"type": "payment_rates"},
+                {"$set": legacy_data},
+                upsert=True
+            )
+            
+        return {"message": f"Payment rates updated successfully for {m}", "rates": new_entry, "master": m}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @api_router.get("/daily-tasks/{task_id}/payment-calculation")
 async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
-    """Calculate payment for completed tasks based on machine capacity & rates effective on the task date"""
+    """Calculate payment for completed tasks based on machine capacity & master-specific rates effective on the task date"""
     try:
         daily_task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
         if not daily_task:
@@ -876,12 +911,6 @@ async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
         
         task_date = str(daily_task.get("date", datetime.utcnow().strftime("%Y-%m-%d")))
         
-        # Fetch dynamic rates effective on the task's specific date
-        active_rates = await get_rates_for_date(task_date)
-        normal_rate = active_rates["normal_rate"]
-        rejected_rate = active_rates["rejected_rate"]
-        black_return_rate = active_rates["black_return_rate"]
-
         # Machine capacities in kg
         machine_capacities = {
             'm1': 10.5,
@@ -897,74 +926,146 @@ async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
             'm11': 6,
         }
         
-        normal_completed_kg = 0
-        black_return_kg = 0
-        rejected_kg = 0
-
-        normal_completed_tasks = 0
-        black_return_tasks = 0
-        rejected_tasks = 0
-        
-        automatic_tasks = daily_task.get("automatic_tasks", [])
-
-        for machine_id, capacity in machine_capacities.items():
-            tasks = daily_task.get(machine_id, [])
-            auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_id]
-            combined_tasks = tasks + auto_for_machine
+        if assigned_to:
+            target_master = 'user2' if assigned_to == 'user2' else 'user1'
+            active_rates = await get_rates_for_date(task_date, master=target_master)
+            normal_rate = active_rates["normal_rate"]
+            rejected_rate = active_rates["rejected_rate"]
+            black_return_rate = active_rates["black_return_rate"]
             
-            if assigned_to:
-                combined_tasks = [t for t in combined_tasks if t.get('assigned_to') == assigned_to or (assigned_to == 'user1' and not t.get('assigned_to'))]
+            normal_completed_kg = 0
+            black_return_kg = 0
+            rejected_kg = 0
+            normal_completed_tasks = 0
+            black_return_tasks = 0
+            rejected_tasks = 0
             
-            for task in combined_tasks:
-                shade_num = str(task.get('shade_number', '')).lower()
-                is_black_return = 'black return' in shade_num
+            automatic_tasks = daily_task.get("automatic_tasks", [])
+            for machine_id, capacity in machine_capacities.items():
+                tasks = daily_task.get(machine_id, [])
+                auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_id]
+                combined_tasks = tasks + auto_for_machine
                 
-                if task.get('status') == 'completed':
-                    if is_black_return:
-                        # Black return completed
-                        black_return_kg += capacity
-                        black_return_tasks += 1
-                    else:
-                        # Normal completed
-                        normal_completed_kg += capacity
-                        normal_completed_tasks += 1
-                elif task.get('status') == 'rejected':
-                    # Rejected task
-                    rejected_kg += capacity
-                    rejected_tasks += 1
-        
-        # Calculations
-        normal_completed_payment = normal_completed_kg * normal_rate
-        black_return_payment = black_return_kg * black_return_rate
-        rejected_payment = rejected_kg * rejected_rate
-        
-        total_payment = normal_completed_payment + black_return_payment + rejected_payment
-        total_kg = normal_completed_kg + black_return_kg + rejected_kg
-        completed_kg = normal_completed_kg + black_return_kg
-        completed_payment = normal_completed_payment + black_return_payment
-        completed_tasks = normal_completed_tasks + black_return_tasks
-        
-        return {
-            "total_kg": round(total_kg, 2),
-            "completed_kg": round(completed_kg, 2),
-            "normal_completed_kg": round(normal_completed_kg, 2),
-            "black_return_kg": round(black_return_kg, 2),
-            "rejected_kg": round(rejected_kg, 2),
-            "normal_rate": normal_rate,
-            "rejected_rate": rejected_rate,
-            "black_return_rate": black_return_rate,
-            "rate_per_kg": normal_rate,
-            "half_rate": black_return_rate,
-            "normal_completed_payment": round(normal_completed_payment, 2),
-            "black_return_payment": round(black_return_payment, 2),
-            "completed_payment": round(completed_payment, 2),
-            "rejected_payment": round(rejected_payment, 2),
-            "total_payment": round(total_payment, 2),
-            "normal_completed_tasks": normal_completed_tasks,
-            "black_return_tasks": black_return_tasks,
-            "completed_tasks": completed_tasks,
-            "rejected_tasks": rejected_tasks
-        }
+                # Filter for this master
+                combined_tasks = [t for t in combined_tasks if t.get('assigned_to') == target_master or (target_master == 'user1' and not t.get('assigned_to'))]
+                
+                for task in combined_tasks:
+                    shade_num = str(task.get('shade_number', '')).lower()
+                    is_black_return = 'black return' in shade_num
+                    
+                    if task.get('status') == 'completed':
+                        if is_black_return:
+                            black_return_kg += capacity
+                            black_return_tasks += 1
+                        else:
+                            normal_completed_kg += capacity
+                            normal_completed_tasks += 1
+                    elif task.get('status') == 'rejected':
+                        rejected_kg += capacity
+                        rejected_tasks += 1
+            
+            normal_completed_payment = normal_completed_kg * normal_rate
+            black_return_payment = black_return_kg * black_return_rate
+            rejected_payment = rejected_kg * rejected_rate
+            
+            total_payment = normal_completed_payment + black_return_payment + rejected_payment
+            total_kg = normal_completed_kg + black_return_kg + rejected_kg
+            completed_kg = normal_completed_kg + black_return_kg
+            completed_payment = normal_completed_payment + black_return_payment
+            completed_tasks = normal_completed_tasks + black_return_tasks
+            
+            return {
+                "master": target_master,
+                "total_kg": round(total_kg, 2),
+                "completed_kg": round(completed_kg, 2),
+                "normal_completed_kg": round(normal_completed_kg, 2),
+                "black_return_kg": round(black_return_kg, 2),
+                "rejected_kg": round(rejected_kg, 2),
+                "normal_rate": normal_rate,
+                "rejected_rate": rejected_rate,
+                "black_return_rate": black_return_rate,
+                "rate_per_kg": normal_rate,
+                "half_rate": black_return_rate,
+                "normal_completed_payment": round(normal_completed_payment, 2),
+                "black_return_payment": round(black_return_payment, 2),
+                "completed_payment": round(completed_payment, 2),
+                "rejected_payment": round(rejected_payment, 2),
+                "total_payment": round(total_payment, 2),
+                "normal_completed_tasks": normal_completed_tasks,
+                "black_return_tasks": black_return_tasks,
+                "completed_tasks": completed_tasks,
+                "rejected_tasks": rejected_tasks
+            }
+        else:
+            # Overall unit calculation across both masters
+            rates_u1 = await get_rates_for_date(task_date, master="user1")
+            rates_u2 = await get_rates_for_date(task_date, master="user2")
+            
+            normal_completed_kg = 0
+            black_return_kg = 0
+            rejected_kg = 0
+            normal_completed_tasks = 0
+            black_return_tasks = 0
+            rejected_tasks = 0
+            normal_completed_payment = 0.0
+            black_return_payment = 0.0
+            rejected_payment = 0.0
+            
+            automatic_tasks = daily_task.get("automatic_tasks", [])
+            for machine_id, capacity in machine_capacities.items():
+                tasks = daily_task.get(machine_id, [])
+                auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_id]
+                combined_tasks = tasks + auto_for_machine
+                
+                for task in combined_tasks:
+                    task_master = task.get('assigned_to') if task.get('assigned_to') == 'user2' else 'user1'
+                    m_rates = rates_u2 if task_master == 'user2' else rates_u1
+                    
+                    shade_num = str(task.get('shade_number', '')).lower()
+                    is_black_return = 'black return' in shade_num
+                    
+                    if task.get('status') == 'completed':
+                        if is_black_return:
+                            black_return_kg += capacity
+                            black_return_tasks += 1
+                            black_return_payment += capacity * m_rates["black_return_rate"]
+                        else:
+                            normal_completed_kg += capacity
+                            normal_completed_tasks += 1
+                            normal_completed_payment += capacity * m_rates["normal_rate"]
+                    elif task.get('status') == 'rejected':
+                        rejected_kg += capacity
+                        rejected_tasks += 1
+                        rejected_payment += capacity * m_rates["rejected_rate"]
+            
+            total_payment = normal_completed_payment + black_return_payment + rejected_payment
+            total_kg = normal_completed_kg + black_return_kg + rejected_kg
+            completed_kg = normal_completed_kg + black_return_kg
+            completed_payment = normal_completed_payment + black_return_payment
+            completed_tasks = normal_completed_tasks + black_return_tasks
+            
+            return {
+                "master": "all",
+                "total_kg": round(total_kg, 2),
+                "completed_kg": round(completed_kg, 2),
+                "normal_completed_kg": round(normal_completed_kg, 2),
+                "black_return_kg": round(black_return_kg, 2),
+                "rejected_kg": round(rejected_kg, 2),
+                "normal_rate": rates_u1["normal_rate"],
+                "rejected_rate": rates_u1["rejected_rate"],
+                "black_return_rate": rates_u1["black_return_rate"],
+                "rates_user1": rates_u1,
+                "rates_user2": rates_u2,
+                "normal_completed_payment": round(normal_completed_payment, 2),
+                "black_return_payment": round(black_return_payment, 2),
+                "completed_payment": round(completed_payment, 2),
+                "rejected_payment": round(rejected_payment, 2),
+                "total_payment": round(total_payment, 2),
+                "normal_completed_tasks": normal_completed_tasks,
+                "black_return_tasks": black_return_tasks,
+                "completed_tasks": completed_tasks,
+                "rejected_tasks": rejected_tasks
+            }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

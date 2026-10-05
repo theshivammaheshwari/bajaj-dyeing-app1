@@ -26,52 +26,96 @@ interface RateHistoryItem {
   updated_at?: string;
 }
 
+interface MasterRates {
+  normalRate: string;
+  rejectedRate: string;
+  blackReturnRate: string;
+  effectiveDate: string;
+  history: RateHistoryItem[];
+}
+
 export default function Settings() {
   const router = useRouter();
   const { colors } = useTheme();
 
-  const [normalRate, setNormalRate] = useState('8');
-  const [rejectedRate, setRejectedRate] = useState('8');
-  const [blackReturnRate, setBlackReturnRate] = useState('4');
-  const [effectiveDate, setEffectiveDate] = useState(new Date().toISOString().split('T')[0]);
-  const [history, setHistory] = useState<RateHistoryItem[]>([]);
+  const [selectedMaster, setSelectedMaster] = useState<'user1' | 'user2'>('user1');
+
+  // Rates for Master 1
+  const [m1Rates, setM1Rates] = useState<MasterRates>({
+    normalRate: '8',
+    rejectedRate: '8',
+    blackReturnRate: '4',
+    effectiveDate: new Date().toISOString().split('T')[0],
+    history: [],
+  });
+
+  // Rates for Master 2
+  const [m2Rates, setM2Rates] = useState<MasterRates>({
+    normalRate: '8',
+    rejectedRate: '8',
+    blackReturnRate: '4',
+    effectiveDate: new Date().toISOString().split('T')[0],
+    history: [],
+  });
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
-    fetchRates();
+    fetchAllRates();
   }, []);
 
-  const fetchRates = async () => {
+  const fetchMasterRate = async (master: 'user1' | 'user2') => {
     try {
-      setLoading(true);
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/settings/rates`);
+      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/settings/rates?master=${master}`);
       const data = await response.json();
       if (data) {
-        setNormalRate(data.normal_rate !== undefined ? String(data.normal_rate) : '8');
-        setRejectedRate(data.rejected_rate !== undefined ? String(data.rejected_rate) : '8');
-        setBlackReturnRate(data.black_return_rate !== undefined ? String(data.black_return_rate) : '4');
-        if (data.effective_date) {
-          setEffectiveDate(data.effective_date);
-        }
-        if (data.history) {
-          setHistory(data.history);
+        const rateObj: MasterRates = {
+          normalRate: data.normal_rate !== undefined ? String(data.normal_rate) : '8',
+          rejectedRate: data.rejected_rate !== undefined ? String(data.rejected_rate) : '8',
+          blackReturnRate: data.black_return_rate !== undefined ? String(data.black_return_rate) : '4',
+          effectiveDate: data.effective_date || new Date().toISOString().split('T')[0],
+          history: data.history || [],
+        };
+        if (master === 'user1') {
+          setM1Rates(rateObj);
+        } else {
+          setM2Rates(rateObj);
         }
       }
     } catch (error) {
-      console.error('Error fetching rates:', error);
+      console.error(`Error fetching rates for ${master}:`, error);
+    }
+  };
+
+  const fetchAllRates = async () => {
+    try {
+      setLoading(true);
+      await Promise.all([fetchMasterRate('user1'), fetchMasterRate('user2')]);
+    } catch (error) {
+      console.error('Error fetching all rates:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  const currentRates = selectedMaster === 'user1' ? m1Rates : m2Rates;
+
+  const updateCurrentRateField = (field: keyof MasterRates, value: any) => {
+    if (selectedMaster === 'user1') {
+      setM1Rates((prev) => ({ ...prev, [field]: value }));
+    } else {
+      setM2Rates((prev) => ({ ...prev, [field]: value }));
+    }
+  };
+
   const handleSave = async () => {
     setMessage(null);
-    const nRate = parseFloat(normalRate);
-    const rRate = parseFloat(rejectedRate);
-    const brRate = parseFloat(blackReturnRate);
+    const nRate = parseFloat(currentRates.normalRate);
+    const rRate = parseFloat(currentRates.rejectedRate);
+    const brRate = parseFloat(currentRates.blackReturnRate);
+    const effDate = currentRates.effectiveDate?.trim();
 
     if (isNaN(nRate) || nRate < 0) {
       showAlert('Error', 'Please enter a valid rate for Normal Completed Tasks');
@@ -85,10 +129,12 @@ export default function Settings() {
       showAlert('Error', 'Please enter a valid rate for Black Return Completed');
       return;
     }
-    if (!effectiveDate || !effectiveDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    if (!effDate || !effDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
       showAlert('Error', 'Please enter a valid Effective Date in YYYY-MM-DD format');
       return;
     }
+
+    const masterTitle = selectedMaster === 'user1' ? 'Dyeing Master 1' : 'Dyeing Master 2';
 
     try {
       setSaving(true);
@@ -96,20 +142,21 @@ export default function Settings() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          master: selectedMaster,
           normal_rate: nRate,
           rejected_rate: rRate,
           black_return_rate: brRate,
-          effective_date: effectiveDate.trim(),
+          effective_date: effDate,
         }),
       });
 
       if (response.ok) {
         showAlert(
           'Success',
-          `Payment rates saved successfully starting from ${effectiveDate}! Past daily tasks before this date will keep their previous rates.`
+          `${masterTitle} payment rates saved successfully starting from ${effDate}! Past tasks before this date will keep their previous rates.`
         );
-        setMessage({ type: 'success', text: `Rates active from ${effectiveDate} saved!` });
-        fetchRates();
+        setMessage({ type: 'success', text: `Rates for ${masterTitle} active from ${effDate} saved!` });
+        await fetchMasterRate(selectedMaster);
       } else {
         const err = await response.json();
         showAlert('Error', err.detail || 'Failed to save rates');
@@ -125,10 +172,10 @@ export default function Settings() {
   };
 
   const handleResetDefaults = () => {
-    setNormalRate('8');
-    setRejectedRate('8');
-    setBlackReturnRate('4');
-    setEffectiveDate(new Date().toISOString().split('T')[0]);
+    updateCurrentRateField('normalRate', '8');
+    updateCurrentRateField('rejectedRate', '8');
+    updateCurrentRateField('blackReturnRate', '4');
+    updateCurrentRateField('effectiveDate', new Date().toISOString().split('T')[0]);
   };
 
   const showAlert = (title: string, msg: string) => {
@@ -147,9 +194,13 @@ export default function Settings() {
     }
   };
 
-  const nRateNum = parseFloat(normalRate) || 0;
-  const rRateNum = parseFloat(rejectedRate) || 0;
-  const brRateNum = parseFloat(blackReturnRate) || 0;
+  const nRateNum = parseFloat(currentRates.normalRate) || 0;
+  const rRateNum = parseFloat(currentRates.rejectedRate) || 0;
+  const brRateNum = parseFloat(currentRates.blackReturnRate) || 0;
+
+  const masterColor = selectedMaster === 'user1' ? '#3182CE' : '#805AD5';
+  const masterLightBg = selectedMaster === 'user1' ? '#EBF8FF' : '#FAF5FF';
+  const masterTitle = selectedMaster === 'user1' ? 'Dyeing Master 1 (DM1)' : 'Dyeing Master 2 (DM2)';
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -167,14 +218,80 @@ export default function Settings() {
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={{ marginTop: 12, color: colors.textSecondary }}>Loading settings...</Text>
+          <Text style={{ marginTop: 12, color: colors.textSecondary }}>Loading rate settings...</Text>
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.introCard}>
-            <Text style={[styles.introTitle, { color: colors.primary }]}>💰 Dynamic Payment Rates</Text>
+            <Text style={[styles.introTitle, { color: colors.primary }]}>💰 Dyeing Master Rate Management</Text>
             <Text style={[styles.introSubtitle, { color: colors.textSecondary }]}>
-              Set labor rates with an Effective Date. <Text style={{ fontWeight: 'bold' }}>Past daily tasks before the effective date will preserve their original rates</Text> and won't be modified.
+              Configure individual labor rates for each Dyeing Master with an Effective Date. Past daily tasks preserve historical rates.
+            </Text>
+          </View>
+
+          {/* Master Tabs Selector */}
+          <View style={[styles.masterTabsContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TouchableOpacity
+              style={[
+                styles.masterTab,
+                selectedMaster === 'user1' && { backgroundColor: '#3182CE' },
+              ]}
+              onPress={() => {
+                setSelectedMaster('user1');
+                setMessage(null);
+              }}
+            >
+              <Text
+                style={[
+                  styles.masterTabText,
+                  { color: selectedMaster === 'user1' ? '#fff' : colors.text },
+                ]}
+              >
+                👤 Dyeing Master 1
+              </Text>
+              <Text
+                style={[
+                  styles.masterTabSub,
+                  { color: selectedMaster === 'user1' ? '#EBF8FF' : colors.textSecondary },
+                ]}
+              >
+                ₹{m1Rates.normalRate}/kg
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.masterTab,
+                selectedMaster === 'user2' && { backgroundColor: '#805AD5' },
+              ]}
+              onPress={() => {
+                setSelectedMaster('user2');
+                setMessage(null);
+              }}
+            >
+              <Text
+                style={[
+                  styles.masterTabText,
+                  { color: selectedMaster === 'user2' ? '#fff' : colors.text },
+                ]}
+              >
+                👤 Dyeing Master 2
+              </Text>
+              <Text
+                style={[
+                  styles.masterTabSub,
+                  { color: selectedMaster === 'user2' ? '#FAF5FF' : colors.textSecondary },
+                ]}
+              >
+                ₹{m2Rates.normalRate}/kg
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Active Master Indicator Banner */}
+          <View style={[styles.activeMasterBanner, { backgroundColor: masterLightBg, borderColor: masterColor }]}>
+            <Text style={[styles.activeMasterText, { color: masterColor }]}>
+              ✏️ Setting rates for <Text style={{ fontWeight: 'bold' }}>{masterTitle}</Text>
             </Text>
           </View>
 
@@ -199,13 +316,13 @@ export default function Settings() {
                 <Text style={[styles.fieldLabel, { color: colors.text }]}>📅 Apply Starting From Date (Effective Date)</Text>
               </View>
               <Text style={[styles.fieldHint, { color: colors.textSecondary }]}>
-                New rates will apply only on and after this date. Older tasks will keep their historical rate.
+                New rates for {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'} will apply on and after this date. Older tasks will retain their previous rate.
               </Text>
               <View style={[styles.inputWrap, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  value={effectiveDate}
-                  onChangeText={setEffectiveDate}
+                  value={currentRates.effectiveDate}
+                  onChangeText={(val) => updateCurrentRateField('effectiveDate', val)}
                   placeholder="YYYY-MM-DD"
                   placeholderTextColor={colors.textSecondary}
                 />
@@ -221,14 +338,14 @@ export default function Settings() {
                 </View>
               </View>
               <Text style={[styles.fieldHint, { color: colors.textSecondary }]}>
-                Applied to all normal lots that are marked as Completed.
+                Applied to all regular lots marked Completed by {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'}.
               </Text>
               <View style={[styles.inputWrap, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-                <Text style={[styles.currencyPrefix, { color: colors.primary }]}>₹</Text>
+                <Text style={[styles.currencyPrefix, { color: masterColor }]}>₹</Text>
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  value={normalRate}
-                  onChangeText={setNormalRate}
+                  value={currentRates.normalRate}
+                  onChangeText={(val) => updateCurrentRateField('normalRate', val)}
                   keyboardType="numeric"
                   placeholder="8.0"
                   placeholderTextColor={colors.textSecondary}
@@ -246,14 +363,14 @@ export default function Settings() {
                 </View>
               </View>
               <Text style={[styles.fieldHint, { color: colors.textSecondary }]}>
-                Applied to all lots that are marked as Rejected by the master.
+                Applied to all lots marked Rejected by {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'}.
               </Text>
               <View style={[styles.inputWrap, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-                <Text style={[styles.currencyPrefix, { color: colors.primary }]}>₹</Text>
+                <Text style={[styles.currencyPrefix, { color: masterColor }]}>₹</Text>
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  value={rejectedRate}
-                  onChangeText={setRejectedRate}
+                  value={currentRates.rejectedRate}
+                  onChangeText={(val) => updateCurrentRateField('rejectedRate', val)}
                   keyboardType="numeric"
                   placeholder="8.0"
                   placeholderTextColor={colors.textSecondary}
@@ -271,14 +388,14 @@ export default function Settings() {
                 </View>
               </View>
               <Text style={[styles.fieldHint, { color: colors.textSecondary }]}>
-                Applied when lot contains 'Black return' in shade name and is completed.
+                Applied when completed lot contains 'Black return' in shade name.
               </Text>
               <View style={[styles.inputWrap, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-                <Text style={[styles.currencyPrefix, { color: colors.primary }]}>₹</Text>
+                <Text style={[styles.currencyPrefix, { color: masterColor }]}>₹</Text>
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  value={blackReturnRate}
-                  onChangeText={setBlackReturnRate}
+                  value={currentRates.blackReturnRate}
+                  onChangeText={(val) => updateCurrentRateField('blackReturnRate', val)}
                   keyboardType="numeric"
                   placeholder="4.0"
                   placeholderTextColor={colors.textSecondary}
@@ -298,28 +415,65 @@ export default function Settings() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: colors.primary }]}
+                style={[styles.saveBtn, { backgroundColor: masterColor }]}
                 onPress={handleSave}
                 disabled={saving}
               >
                 {saving ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.saveBtnText}>💾 Save Rates</Text>
+                  <Text style={styles.saveBtnText}>💾 Save {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'} Rates</Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Machine Payout Preview Card */}
+          {/* Quick Comparison Card */}
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 15 }]}>
-            <Text style={[styles.previewTitle, { color: colors.text }]}>📊 Machine Payout Preview (Per Lot)</Text>
+            <Text style={[styles.previewTitle, { color: colors.text }]}>⚖️ Dyeing Masters Rates Comparison</Text>
             <Text style={[styles.fieldHint, { color: colors.textSecondary, marginBottom: 12 }]}>
-              Estimated earning per lot under current configured rates:
+              Current active rate summary for both masters:
             </Text>
 
             <View style={styles.table}>
-              <View style={[styles.tableRow, styles.tableHeaderRow, { backgroundColor: colors.primary }]}>
+              <View style={[styles.tableRow, styles.tableHeaderRow, { backgroundColor: '#2D3748' }]}>
+                <Text style={[styles.th, { flex: 1.5, color: '#fff' }]}>Master</Text>
+                <Text style={[styles.th, { flex: 1.2, color: '#fff' }]}>Normal</Text>
+                <Text style={[styles.th, { flex: 1.2, color: '#fff' }]}>Rejected</Text>
+                <Text style={[styles.th, { flex: 1.2, color: '#fff' }]}>Black Ret</Text>
+              </View>
+
+              <View style={[styles.tableRow, { borderBottomColor: colors.border, backgroundColor: selectedMaster === 'user1' ? '#EBF8FF' : 'transparent' }]}>
+                <View style={{ flex: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3182CE', marginRight: 6 }} />
+                  <Text style={[styles.td, { fontWeight: 'bold', color: '#3182CE' }]}>Master 1</Text>
+                </View>
+                <Text style={[styles.td, { flex: 1.2, color: colors.text, fontWeight: '600' }]}>₹{m1Rates.normalRate}/kg</Text>
+                <Text style={[styles.td, { flex: 1.2, color: colors.text, fontWeight: '600' }]}>₹{m1Rates.rejectedRate}/kg</Text>
+                <Text style={[styles.td, { flex: 1.2, color: colors.text, fontWeight: '600' }]}>₹{m1Rates.blackReturnRate}/kg</Text>
+              </View>
+
+              <View style={[styles.tableRow, { borderBottomColor: colors.border, backgroundColor: selectedMaster === 'user2' ? '#FAF5FF' : 'transparent' }]}>
+                <View style={{ flex: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#805AD5', marginRight: 6 }} />
+                  <Text style={[styles.td, { fontWeight: 'bold', color: '#805AD5' }]}>Master 2</Text>
+                </View>
+                <Text style={[styles.td, { flex: 1.2, color: colors.text, fontWeight: '600' }]}>₹{m2Rates.normalRate}/kg</Text>
+                <Text style={[styles.td, { flex: 1.2, color: colors.text, fontWeight: '600' }]}>₹{m2Rates.rejectedRate}/kg</Text>
+                <Text style={[styles.td, { flex: 1.2, color: colors.text, fontWeight: '600' }]}>₹{m2Rates.blackReturnRate}/kg</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Machine Payout Preview Card */}
+          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 15 }]}>
+            <Text style={[styles.previewTitle, { color: colors.text }]}>📊 {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'} Machine Payout Preview (Per Lot)</Text>
+            <Text style={[styles.fieldHint, { color: colors.textSecondary, marginBottom: 12 }]}>
+              Estimated earning per lot under current {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'} configured rates:
+            </Text>
+
+            <View style={styles.table}>
+              <View style={[styles.tableRow, styles.tableHeaderRow, { backgroundColor: masterColor }]}>
                 <Text style={[styles.th, { flex: 1.2, color: '#fff' }]}>Machine</Text>
                 <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Cap (kg)</Text>
                 <Text style={[styles.th, { flex: 1.4, color: '#fff' }]}>Normal (₹{nRateNum})</Text>
@@ -354,11 +508,11 @@ export default function Settings() {
           </View>
 
           {/* Rate History Log Card */}
-          {history && history.length > 0 && (
+          {currentRates.history && currentRates.history.length > 0 && (
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 15 }]}>
-              <Text style={[styles.previewTitle, { color: colors.text }]}>📜 Rate Change History</Text>
+              <Text style={[styles.previewTitle, { color: colors.text }]}>📜 {selectedMaster === 'user1' ? 'Master 1' : 'Master 2'} Rate Change History</Text>
               <Text style={[styles.fieldHint, { color: colors.textSecondary, marginBottom: 12 }]}>
-                Record of all historical rates and their effective start dates:
+                Record of all historical rates and effective dates for {selectedMaster === 'user1' ? 'Dyeing Master 1' : 'Dyeing Master 2'}:
               </Text>
 
               <View style={styles.table}>
@@ -369,7 +523,7 @@ export default function Settings() {
                   <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Black Ret</Text>
                 </View>
 
-                {history.map((item, idx) => (
+                {currentRates.history.map((item, idx) => (
                   <View
                     key={idx}
                     style={[
@@ -377,7 +531,7 @@ export default function Settings() {
                       { borderBottomColor: colors.border, backgroundColor: idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.02)' },
                     ]}
                   >
-                    <Text style={[styles.td, { flex: 1.2, fontWeight: 'bold', color: colors.primary }]}>{item.effective_date}</Text>
+                    <Text style={[styles.td, { flex: 1.2, fontWeight: 'bold', color: masterColor }]}>{item.effective_date}</Text>
                     <Text style={[styles.td, { flex: 1, color: colors.text }]}>₹{item.normal_rate}/kg</Text>
                     <Text style={[styles.td, { flex: 1, color: colors.text }]}>₹{item.rejected_rate}/kg</Text>
                     <Text style={[styles.td, { flex: 1, color: colors.text }]}>₹{item.black_return_rate}/kg</Text>
@@ -445,6 +599,42 @@ const styles = StyleSheet.create({
   introSubtitle: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  masterTabsContainer: {
+    flexDirection: 'row',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 6,
+    marginBottom: 12,
+    gap: 8,
+  },
+  masterTab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  masterTabText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  masterTabSub: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  activeMasterBanner: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  activeMasterText: {
+    fontSize: 13,
   },
   messageBanner: {
     padding: 12,
@@ -535,7 +725,7 @@ const styles = StyleSheet.create({
   },
   saveBtnText: {
     color: '#fff',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: 'bold',
   },
   previewTitle: {
