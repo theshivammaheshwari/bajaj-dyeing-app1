@@ -15,6 +15,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
+import ShadeBatchHistoryModal from '../components/ShadeBatchHistoryModal';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 
@@ -81,6 +82,25 @@ export default function EditDailyTask() {
   const [activeTask, setActiveTask] = useState<{ machineId: string; taskId: string } | null>(null);
   const [saveError, setSaveError] = useState('');
   const [selectedMaster, setSelectedMaster] = useState<'user1' | 'user2'>('user1');
+
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [historyModalShade, setHistoryModalShade] = useState('');
+  const [historyModalFilter, setHistoryModalFilter] = useState<'all' | '2ply' | '3ply'>('all');
+
+  const openBatchHistory = (shadeNum: string, s2?: string, s3?: string) => {
+    if (!shadeNum) return;
+    const num2 = parseInt(s2 || '0') || 0;
+    const num3 = parseInt(s3 || '0') || 0;
+    let filter: 'all' | '2ply' | '3ply' = 'all';
+    if (num2 > 0 && num3 === 0) {
+      filter = '2ply';
+    } else if (num3 > 0 && num2 === 0) {
+      filter = '3ply';
+    }
+    setHistoryModalShade(shadeNum);
+    setHistoryModalFilter(filter);
+    setHistoryModalVisible(true);
+  };
 
   const [machineTasks, setMachineTasks] = useState<{ [key: string]: MachineTaskData[] }>({
     m1: Array.from({ length: 5 }, (_, i) => emptyTask('m1', i)),
@@ -463,16 +483,30 @@ export default function EditDailyTask() {
                                   }
                                 }}
                               >
-                                <Text
-                                  numberOfLines={1}
-                                  style={[
-                                    styles.cellShadeText,
-                                    { color: colors.textSecondary },
-                                    task.shadeNumber ? [styles.filledText, { color: colors.primary }] : null,
-                                  ]}
-                                >
-                                  {task.shadeNumber ? `#${task.shadeNumber}` : 'Select Shade'}
-                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text
+                                    numberOfLines={1}
+                                    style={[
+                                      styles.cellShadeText,
+                                      { color: colors.textSecondary },
+                                      task.shadeNumber ? [styles.filledText, { color: colors.primary }] : null,
+                                    ]}
+                                  >
+                                    {task.shadeNumber ? `#${task.shadeNumber}` : 'Select Shade'}
+                                  </Text>
+                                  {task.shadeNumber ? (
+                                    <TouchableOpacity
+                                      onPress={(e: any) => {
+                                        e.stopPropagation?.();
+                                        openBatchHistory(task.shadeNumber, task.springs2ply, task.springs3ply);
+                                      }}
+                                      style={styles.cellHistoryIconBtn}
+                                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    >
+                                      <Text style={styles.cellHistoryIconText}>📜</Text>
+                                    </TouchableOpacity>
+                                  ) : null}
+                                </View>
                                 {task.carried_forward && (
                                   <View style={{ backgroundColor: '#F59E0B', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, marginTop: 4, alignSelf: 'flex-start' }}>
                                     <Text style={{ fontSize: 9, color: '#FFFFFF', fontWeight: 'bold' }}>C/F</Text>
@@ -521,6 +555,17 @@ export default function EditDailyTask() {
                                     <Text style={{ color: colors.danger, fontWeight: 'bold', fontSize: 16 }}>✕</Text>
                                   </TouchableOpacity>
                                 </View>
+
+                                {task.shadeNumber ? (
+                                  <TouchableOpacity
+                                    onPress={() => openBatchHistory(task.shadeNumber, task.springs2ply, task.springs3ply)}
+                                    style={[styles.inlineHistoryBtn, { backgroundColor: colors.primaryLight }]}
+                                  >
+                                    <Text style={[styles.inlineHistoryBtnText, { color: colors.primary }]}>
+                                      📜 View Batch History ({task.shadeNumber})
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : null}
 
                                 {task.showShadeDropdown && (
                                   <View style={[styles.inlineDropdown, { backgroundColor: colors.card, borderColor: colors.primary }]}>
@@ -640,6 +685,13 @@ export default function EditDailyTask() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      <ShadeBatchHistoryModal
+        visible={historyModalVisible}
+        shadeNumber={historyModalShade}
+        initialPlyFilter={historyModalFilter}
+        onClose={() => setHistoryModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -930,5 +982,27 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: {
     opacity: 0.5,
+  },
+  cellHistoryIconBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#EBF8FF',
+    marginLeft: 4,
+  },
+  cellHistoryIconText: {
+    fontSize: 11,
+  },
+  inlineHistoryBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  inlineHistoryBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
   },
 });

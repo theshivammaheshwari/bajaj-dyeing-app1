@@ -16,6 +16,7 @@ import {
 import { useRouter } from 'expo-router';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
+import ShadeBatchHistoryModal from '../components/ShadeBatchHistoryModal';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 
@@ -94,6 +95,25 @@ export default function AddDailyTask() {
   
   const [autoAssignRows, setAutoAssignRows] = useState<AutoAssignRow[]>([]);
   const [existingAutomaticTasks, setExistingAutomaticTasks] = useState<any[]>([]);
+
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [historyModalShade, setHistoryModalShade] = useState('');
+  const [historyModalFilter, setHistoryModalFilter] = useState<'all' | '2ply' | '3ply'>('all');
+
+  const openBatchHistory = (shadeNum: string, s2?: string, s3?: string) => {
+    if (!shadeNum) return;
+    const num2 = parseInt(s2 || '0') || 0;
+    const num3 = parseInt(s3 || '0') || 0;
+    let filter: 'all' | '2ply' | '3ply' = 'all';
+    if (num2 > 0 && num3 === 0) {
+      filter = '2ply';
+    } else if (num3 > 0 && num2 === 0) {
+      filter = '3ply';
+    }
+    setHistoryModalShade(shadeNum);
+    setHistoryModalFilter(filter);
+    setHistoryModalVisible(true);
+  };
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -666,19 +686,32 @@ export default function AddDailyTask() {
                                 setActiveTask(isActive ? null : { machineId: machine.id, taskId: task.id });
                               }}
                             >
-                              <Text
-                                numberOfLines={1}
-                                style={[
-                                  styles.cellShadeText,
-                                  { color: colors.textSecondary },
-                                  task.shadeNumber ? [styles.filledText, { color: colors.primary }] : null,
-                                ]}
-                              >
-                                {task.shadeNumber ? `#${task.shadeNumber}` : 'Select Shade'}
-                              </Text>
-                              {!isActive && (
-                                <Text style={[styles.editIcon, { color: colors.textSecondary }]}>✎</Text>
-                              )}
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                <Text
+                                  numberOfLines={1}
+                                  style={[
+                                    styles.cellShadeText,
+                                    { color: colors.textSecondary, flex: 1 },
+                                    task.shadeNumber ? [styles.filledText, { color: colors.primary }] : null,
+                                  ]}
+                                >
+                                  {task.shadeNumber ? `#${task.shadeNumber}` : 'Select Shade'}
+                                </Text>
+                                {task.shadeNumber ? (
+                                  <TouchableOpacity
+                                    onPress={(e: any) => {
+                                      e.stopPropagation?.();
+                                      openBatchHistory(task.shadeNumber, task.springs2ply, task.springs3ply);
+                                    }}
+                                    style={styles.cellHistoryIconBtn}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                  >
+                                    <Text style={styles.cellHistoryIconText}>📜</Text>
+                                  </TouchableOpacity>
+                                ) : !isActive ? (
+                                  <Text style={[styles.editIcon, { color: colors.textSecondary }]}>✎</Text>
+                                ) : null}
+                              </View>
                             </TouchableOpacity>
 
                             {isActive ? (
@@ -704,6 +737,17 @@ export default function AddDailyTask() {
                                     <Text style={{ color: colors.danger, fontWeight: 'bold' }}>✕</Text>
                                   </TouchableOpacity>
                                 </View>
+
+                                {task.shadeNumber ? (
+                                  <TouchableOpacity
+                                    onPress={() => openBatchHistory(task.shadeNumber, task.springs2ply, task.springs3ply)}
+                                    style={[styles.inlineHistoryBtn, { backgroundColor: colors.primaryLight }]}
+                                  >
+                                    <Text style={[styles.inlineHistoryBtnText, { color: colors.primary }]}>
+                                      📜 View Batch History ({task.shadeNumber})
+                                    </Text>
+                                  </TouchableOpacity>
+                                ) : null}
 
                                 {task.showShadeDropdown && (
                                   <View
@@ -860,9 +904,19 @@ export default function AddDailyTask() {
                 <View key={row.id} style={[styles.selectionRow, { borderColor: colors.border, backgroundColor: colors.card, marginBottom: 10 }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                     <Text style={{ fontWeight: 'bold', color: colors.text }}>Task #{index + 1}</Text>
-                    <TouchableOpacity onPress={() => removeAutoAssignRow(row.id)}>
-                      <Text style={{ color: colors.danger, fontWeight: 'bold' }}>✕ Remove</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      {row.shadeNumber ? (
+                        <TouchableOpacity
+                          onPress={() => openBatchHistory(row.shadeNumber, row.springs2ply, row.springs3ply)}
+                          style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: colors.primaryLight }}
+                        >
+                          <Text style={{ fontSize: 11, fontWeight: 'bold', color: colors.primary }}>📜 Batch Record</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity onPress={() => removeAutoAssignRow(row.id)}>
+                        <Text style={{ color: colors.danger, fontWeight: 'bold' }}>✕ Remove</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   
                   {/* Select Shade */}
@@ -960,6 +1014,13 @@ export default function AddDailyTask() {
         </>
         )}
       </KeyboardAvoidingView>
+
+      <ShadeBatchHistoryModal
+        visible={historyModalVisible}
+        shadeNumber={historyModalShade}
+        initialPlyFilter={historyModalFilter}
+        onClose={() => setHistoryModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1444,5 +1505,27 @@ const styles = StyleSheet.create({
   tabBtnText: {
     fontWeight: 'bold',
     fontSize: 14,
-  }
+  },
+  cellHistoryIconBtn: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#EBF8FF',
+    marginLeft: 4,
+  },
+  cellHistoryIconText: {
+    fontSize: 11,
+  },
+  inlineHistoryBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  inlineHistoryBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
 });

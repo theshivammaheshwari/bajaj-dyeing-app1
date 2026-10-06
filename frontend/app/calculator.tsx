@@ -16,6 +16,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
+import ShadeBatchHistoryModal from '../components/ShadeBatchHistoryModal';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MACHINE_WEIGHTS = [6, 10.5, 12, 15, 24];
@@ -92,6 +93,8 @@ export default function Calculator() {
   const [showAssignDateModal, setShowAssignDateModal] = useState(false);
   const [assignDate, setAssignDate] = useState<string>('');
   const [assignMaster, setAssignMaster] = useState<'user1' | 'user2'>('user1');
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyModalFilter, setHistoryModalFilter] = useState<'all' | '2ply' | '3ply'>('all');
 
   const showAlert = (title: string, message: string, onOk?: () => void) => {
     if (Platform.OS === 'web') {
@@ -731,6 +734,24 @@ export default function Calculator() {
             <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Number of Dyes:</Text>
             <Text style={[styles.infoValue, { color: colors.text }]}>{shade.dyes.length}</Text>
           </View>
+
+          <TouchableOpacity
+            onPress={() => {
+              const currentW = selectedMachine.toString();
+              const s2 = twoPValues[currentW] || '0';
+              const s3 = threePValues[currentW] || '0';
+              let f: 'all' | '2ply' | '3ply' = 'all';
+              if (parseInt(s2) > 0 && parseInt(s3) === 0) f = '2ply';
+              else if (parseInt(s3) > 0 && parseInt(s2) === 0) f = '3ply';
+              setHistoryModalFilter(f);
+              setShowHistoryModal(true);
+            }}
+            style={[styles.calcHistoryBtn, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
+          >
+            <Text style={[styles.calcHistoryBtnText, { color: colors.primary }]}>
+              📜 View Past Batch Records & Dates (2P / 3P)
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Weight Selection */}
@@ -1277,6 +1298,13 @@ export default function Calculator() {
           </View>
         </View>
       </Modal>
+
+      <ShadeBatchHistoryModal
+        visible={showHistoryModal}
+        shadeNumber={shade?.shade_number || ''}
+        initialPlyFilter={historyModalFilter}
+        onClose={() => setShowHistoryModal(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -1818,6 +1846,19 @@ const styles = StyleSheet.create({
   },
   subMachineButtonText: {
     fontSize: 11,
+    fontWeight: 'bold',
+  },
+  calcHistoryBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calcHistoryBtnText: {
+    fontSize: 13,
     fontWeight: 'bold',
   },
 });

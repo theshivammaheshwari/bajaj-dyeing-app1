@@ -225,9 +225,112 @@ async def get_all_dye_names():
             {"$group": {"_id": "$dyes.dye_name"}},
             {"$sort": {"_id": 1}}
         ]
-        result = await db.shades.aggregate(pipeline).to_list(1000)
-        dye_names = [item["_id"] for item in result if item["_id"]]
         return {"dye_names": dye_names}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.get("/shades/batch-history/{shade_number}")
+@api_router.get("/shades/{shade_number}/batch-history")
+async def get_shade_batch_history(shade_number: str):
+    """Retrieve full batch history for a specific shade across all daily tasks (dates, machines, 2ply, 3ply, weights, status)"""
+    try:
+        clean_shade = str(shade_number).strip().lower().lstrip("#")
+        
+        # Search all daily tasks
+        daily_tasks_cursor = db.daily_tasks.find({})
+        daily_tasks = await daily_tasks_cursor.to_list(10000)
+        
+        machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
+        batches = []
+        
+        for dt in daily_tasks:
+            dt_date = dt.get("date", "")
+            
+            # 1. Manual Machine Tasks
+            for machine_id in machines:
+                tasks = dt.get(machine_id, [])
+                for t in tasks:
+                    t_sn = str(t.get('shade_number', '')).strip().lower().lstrip("#")
+                    if t_sn == clean_shade:
+                        s2 = int(t.get("springs_2ply", 0) or 0)
+                        s3 = int(t.get("springs_3ply", 0) or 0)
+                        batches.append({
+                            "task_id": str(t.get("id", "")),
+                            "date": dt_date,
+                            "machine": machine_id.upper(),
+                            "shade_number": str(t.get('shade_number', '')),
+                            "springs_2ply": s2,
+                            "springs_3ply": s3,
+                            "total_springs": s2 + s3,
+                            "weight": float(t.get("weight", 0) or 0),
+                            "ply2_weight": float(t.get("ply2_weight", 0) or 0),
+                            "ply3_weight": float(t.get("ply3_weight", 0) or 0),
+                            "status": t.get("status", "pending"),
+                            "assigned_to": t.get("assigned_to", "user1"),
+                            "type": "manual",
+                            "completed_at": t.get("completed_at"),
+                            "start_time": t.get("start_time"),
+                            "end_time": t.get("end_time")
+                        })
+            
+            # 2. Automatic Tasks
+            auto_tasks = dt.get("automatic_tasks", [])
+            for t in auto_tasks:
+                t_sn = str(t.get('shade_number', '')).strip().lower().lstrip("#")
+                if t_sn == clean_shade:
+                    s2 = int(t.get("springs_2ply", 0) or 0)
+                    s3 = int(t.get("springs_3ply", 0) or 0)
+                    m_label = str(t.get("machine", "AUTO")).upper()
+                    batches.append({
+                        "task_id": str(t.get("id", "")),
+                        "date": dt_date,
+                        "machine": m_label,
+                        "shade_number": str(t.get('shade_number', '')),
+                        "springs_2ply": s2,
+                        "springs_3ply": s3,
+                        "total_springs": s2 + s3,
+                        "weight": float(t.get("weight", 0) or 0),
+                        "ply2_weight": float(t.get("ply2_weight", 0) or 0),
+                        "ply3_weight": float(t.get("ply3_weight", 0) or 0),
+                        "status": t.get("status", "pending"),
+                        "assigned_to": t.get("assigned_to", "user1"),
+                        "type": "automatic",
+                        "completed_at": t.get("completed_at"),
+                        "start_time": t.get("start_time"),
+                        "end_time": t.get("end_time")
+                    })
+        
+        # Sort batches descending by date
+        batches.sort(key=lambda x: str(x.get("date", "")), reverse=True)
+        
+        history_2ply = [b for b in batches if b["springs_2ply"] > 0]
+        history_3ply = [b for b in batches if b["springs_3ply"] > 0]
+        
+        last_batch_date = batches[0]["date"] if batches else None
+        last_batch_machine = batches[0]["machine"] if batches else None
+        last_2ply_date = history_2ply[0]["date"] if history_2ply else None
+        last_3ply_date = history_3ply[0]["date"] if history_3ply else None
+        
+        return {
+            "shade_number": shade_number,
+            "found": len(batches) > 0,
+            "last_batch_date": last_batch_date,
+            "last_batch_machine": last_batch_machine,
+            "last_2ply_date": last_2ply_date,
+            "last_3ply_date": last_3ply_date,
+            "total_batches": len(batches),
+            "total_2ply_batches": len(history_2ply),
+            "total_3ply_batches": len(history_3ply),
+            "total_2ply_springs": sum(b["springs_2ply"] for b in batches),
+            "total_3ply_springs": sum(b["springs_3ply"] for b in batches),
+            "total_springs": sum(b["total_springs"] for b in batches),
+            "total_weight": round(sum(b["weight"] for b in batches), 2),
+            "total_completed_batches": len([b for b in batches if b["status"] == "completed"]),
+            "batches": batches,
+            "history_2ply": history_2ply,
+            "history_3ply": history_3ply
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
