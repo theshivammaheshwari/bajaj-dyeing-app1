@@ -1267,6 +1267,248 @@ async def rollover_pending_tasks(from_date: str, to_date: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@api_router.get("/reports/monthly-production")
+async def get_monthly_production_report(year: Optional[str] = None, master: Optional[str] = None):
+    """Generate month-wise dyeing analytics & consumption report (2-PLY kg, 3-PLY kg, Completed kg, Rejected kg)"""
+    try:
+        daily_tasks = await db.daily_tasks.find({}).to_list(10000)
+        
+        machine_capacities = {
+            'm1': {'capacity': 10.5, 'total_springs': 7},
+            'm2': {'capacity': 12.0, 'total_springs': 8},
+            'm3': {'capacity': 12.0, 'total_springs': 8},
+            'm4': {'capacity': 6.0, 'total_springs': 4},
+            'm5': {'capacity': 24.0, 'total_springs': 16},
+            'm6': {'capacity': 15.0, 'total_springs': 10},
+            'm7': {'capacity': 15.0, 'total_springs': 10},
+            'm8': {'capacity': 12.0, 'total_springs': 8},
+            'm9': {'capacity': 12.0, 'total_springs': 8},
+            'm10': {'capacity': 6.0, 'total_springs': 4},
+            'm11': {'capacity': 6.0, 'total_springs': 4},
+        }
+        
+        months_dict = {}
+        available_years = set()
+        
+        for dt in daily_tasks:
+            dt_date = str(dt.get("date", "")).strip()
+            if not dt_date or len(dt_date) < 7:
+                continue
+            
+            task_year = dt_date[:4]
+            month_key = dt_date[:7]  # "YYYY-MM"
+            available_years.add(task_year)
+            
+            if year and year != "all" and task_year != year:
+                continue
+                
+            if month_key not in months_dict:
+                # Format month name e.g. "October 2026"
+                try:
+                    m_date_obj = datetime.strptime(month_key, "%Y-%m")
+                    m_label = m_date_obj.strftime("%B %Y")
+                except Exception:
+                    m_label = month_key
+                    
+                months_dict[month_key] = {
+                    "month_key": month_key,
+                    "month_name": m_label,
+                    "year": task_year,
+                    "completed_2ply_kg": 0.0,
+                    "completed_3ply_kg": 0.0,
+                    "completed_total_kg": 0.0,
+                    "completed_springs_2ply": 0,
+                    "completed_springs_3ply": 0,
+                    "completed_batches": 0,
+                    "rejected_2ply_kg": 0.0,
+                    "rejected_3ply_kg": 0.0,
+                    "rejected_total_kg": 0.0,
+                    "rejected_springs_2ply": 0,
+                    "rejected_springs_3ply": 0,
+                    "rejected_batches": 0,
+                    "pending_total_kg": 0.0,
+                    "pending_batches": 0,
+                    "dm1_completed_kg": 0.0,
+                    "dm2_completed_kg": 0.0,
+                    "dm1_rejected_kg": 0.0,
+                    "dm2_rejected_kg": 0.0,
+                }
+            
+            m_stat = months_dict[month_key]
+            
+            # 1. Manual Machine Tasks
+            for machine_id, mc in machine_capacities.items():
+                tasks = dt.get(machine_id, [])
+                for t in tasks:
+                    t_master = "user2" if t.get("assigned_to") == "user2" else "user1"
+                    if master and master != "all" and t_master != master:
+                        continue
+                        
+                    capacity = mc['capacity']
+                    tot_springs = mc['total_springs']
+                    kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
+                    
+                    s2 = int(t.get("springs_2ply", 0) or 0)
+                    s3 = int(t.get("springs_3ply", 0) or 0)
+                    
+                    # Exact weights or prorated
+                    if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
+                        w2 = float(t.get("ply2_weight", 0))
+                    else:
+                        w2 = s2 * kg_per_spring
+                        
+                    if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
+                        w3 = float(t.get("ply3_weight", 0))
+                    else:
+                        w3 = s3 * kg_per_spring
+                        
+                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                    status = t.get("status", "pending")
+                    
+                    if status == "completed":
+                        m_stat["completed_2ply_kg"] += w2
+                        m_stat["completed_3ply_kg"] += w3
+                        m_stat["completed_total_kg"] += tot_w
+                        m_stat["completed_springs_2ply"] += s2
+                        m_stat["completed_springs_3ply"] += s3
+                        m_stat["completed_batches"] += 1
+                        if t_master == "user1":
+                            m_stat["dm1_completed_kg"] += tot_w
+                        else:
+                            m_stat["dm2_completed_kg"] += tot_w
+                    elif status == "rejected":
+                        m_stat["rejected_2ply_kg"] += w2
+                        m_stat["rejected_3ply_kg"] += w3
+                        m_stat["rejected_total_kg"] += tot_w
+                        m_stat["rejected_springs_2ply"] += s2
+                        m_stat["rejected_springs_3ply"] += s3
+                        m_stat["rejected_batches"] += 1
+                        if t_master == "user1":
+                            m_stat["dm1_rejected_kg"] += tot_w
+                        else:
+                            m_stat["dm2_rejected_kg"] += tot_w
+                    else:
+                        m_stat["pending_total_kg"] += tot_w
+                        m_stat["pending_batches"] += 1
+
+            # 2. Automatic Tasks
+            auto_tasks = dt.get("automatic_tasks", [])
+            for t in auto_tasks:
+                t_master = "user2" if t.get("assigned_to") == "user2" else "user1"
+                if master and master != "all" and t_master != master:
+                    continue
+                    
+                m_id = str(t.get("machine", "")).lower()
+                mc = machine_capacities.get(m_id, {'capacity': 12.0, 'total_springs': 8})
+                capacity = float(t.get("weight") or mc['capacity'])
+                tot_springs = mc['total_springs']
+                kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
+                
+                s2 = int(t.get("springs_2ply", 0) or 0)
+                s3 = int(t.get("springs_3ply", 0) or 0)
+                
+                if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
+                    w2 = float(t.get("ply2_weight", 0))
+                else:
+                    w2 = s2 * kg_per_spring
+                    
+                if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
+                    w3 = float(t.get("ply3_weight", 0))
+                else:
+                    w3 = s3 * kg_per_spring
+                    
+                tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                status = t.get("status", "pending")
+                
+                if status == "completed":
+                    m_stat["completed_2ply_kg"] += w2
+                    m_stat["completed_3ply_kg"] += w3
+                    m_stat["completed_total_kg"] += tot_w
+                    m_stat["completed_springs_2ply"] += s2
+                    m_stat["completed_springs_3ply"] += s3
+                    m_stat["completed_batches"] += 1
+                    if t_master == "user1":
+                        m_stat["dm1_completed_kg"] += tot_w
+                    else:
+                        m_stat["dm2_completed_kg"] += tot_w
+                elif status == "rejected":
+                    m_stat["rejected_2ply_kg"] += w2
+                    m_stat["rejected_3ply_kg"] += w3
+                    m_stat["rejected_total_kg"] += tot_w
+                    m_stat["rejected_springs_2ply"] += s2
+                    m_stat["rejected_springs_3ply"] += s3
+                    m_stat["rejected_batches"] += 1
+                    if t_master == "user1":
+                        m_stat["dm1_rejected_kg"] += tot_w
+                    else:
+                        m_stat["dm2_rejected_kg"] += tot_w
+                else:
+                    m_stat["pending_total_kg"] += tot_w
+                    m_stat["pending_batches"] += 1
+
+        # Format and sort months
+        months_list = []
+        for m_key, m_val in months_dict.items():
+            tot_processed = m_val["completed_total_kg"] + m_val["rejected_total_kg"]
+            rej_pct = (m_val["rejected_total_kg"] / tot_processed * 100) if tot_processed > 0 else 0.0
+            
+            m_val["completed_2ply_kg"] = round(m_val["completed_2ply_kg"], 2)
+            m_val["completed_3ply_kg"] = round(m_val["completed_3ply_kg"], 2)
+            m_val["completed_total_kg"] = round(m_val["completed_total_kg"], 2)
+            m_val["rejected_2ply_kg"] = round(m_val["rejected_2ply_kg"], 2)
+            m_val["rejected_3ply_kg"] = round(m_val["rejected_3ply_kg"], 2)
+            m_val["rejected_total_kg"] = round(m_val["rejected_total_kg"], 2)
+            m_val["pending_total_kg"] = round(m_val["pending_total_kg"], 2)
+            m_val["total_processed_kg"] = round(tot_processed, 2)
+            m_val["rejection_rate_percent"] = round(rej_pct, 2)
+            m_val["dm1_completed_kg"] = round(m_val["dm1_completed_kg"], 2)
+            m_val["dm2_completed_kg"] = round(m_val["dm2_completed_kg"], 2)
+            m_val["dm1_rejected_kg"] = round(m_val["dm1_rejected_kg"], 2)
+            m_val["dm2_rejected_kg"] = round(m_val["dm2_rejected_kg"], 2)
+            
+            months_list.append(m_val)
+            
+        months_list.sort(key=lambda x: x["month_key"], reverse=True)
+        
+        # Grand Totals
+        grand_completed_2ply_kg = sum(m["completed_2ply_kg"] for m in months_list)
+        grand_completed_3ply_kg = sum(m["completed_3ply_kg"] for m in months_list)
+        grand_completed_total_kg = sum(m["completed_total_kg"] for m in months_list)
+        grand_rejected_2ply_kg = sum(m["rejected_2ply_kg"] for m in months_list)
+        grand_rejected_3ply_kg = sum(m["rejected_3ply_kg"] for m in months_list)
+        grand_rejected_total_kg = sum(m["rejected_total_kg"] for m in months_list)
+        grand_completed_batches = sum(m["completed_batches"] for m in months_list)
+        grand_rejected_batches = sum(m["rejected_batches"] for m in months_list)
+        grand_total_processed_kg = grand_completed_total_kg + grand_rejected_total_kg
+        grand_rejection_rate = (grand_rejected_total_kg / grand_total_processed_kg * 100) if grand_total_processed_kg > 0 else 0.0
+        
+        sorted_years = sorted(list(available_years), reverse=True)
+        if not sorted_years:
+            sorted_years = [datetime.utcnow().strftime("%Y")]
+            
+        return {
+            "selected_year": year or "all",
+            "available_years": sorted_years,
+            "selected_master": master or "all",
+            "grand_summary": {
+                "total_completed_kg": round(grand_completed_total_kg, 2),
+                "total_completed_2ply_kg": round(grand_completed_2ply_kg, 2),
+                "total_completed_3ply_kg": round(grand_completed_3ply_kg, 2),
+                "total_rejected_kg": round(grand_rejected_total_kg, 2),
+                "total_rejected_2ply_kg": round(grand_rejected_2ply_kg, 2),
+                "total_rejected_3ply_kg": round(grand_rejected_3ply_kg, 2),
+                "total_processed_kg": round(grand_total_processed_kg, 2),
+                "total_completed_batches": grand_completed_batches,
+                "total_rejected_batches": grand_rejected_batches,
+                "rejection_rate_percent": round(grand_rejection_rate, 2),
+                "total_months": len(months_list)
+            },
+            "months": months_list
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # Include the router in the main app
 app.include_router(api_router)
 

@@ -250,6 +250,14 @@ export default function Index() {
           <Text style={styles.quickActionIcon}>⚙️</Text>
           <Text style={styles.quickActionText}>Rate Settings</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#2B6CB0' }]}
+          onPress={() => router.push('/monthly-report' as any)}
+        >
+          <Text style={styles.quickActionIcon}>📊</Text>
+          <Text style={styles.quickActionText}>Monthly Report</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
