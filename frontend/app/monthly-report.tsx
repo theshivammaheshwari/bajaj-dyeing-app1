@@ -89,7 +89,9 @@ export default function MonthlyReport() {
         const data = await response.json();
         setReportData(data);
       } else {
-        showAlert('Error', 'Failed to load monthly report');
+        const errJson = await response.json().catch(() => null);
+        const errMsg = errJson?.detail || `Server returned ${response.status} (${response.statusText || 'Error'})`;
+        showAlert('Error', errMsg);
       }
     } catch (error) {
       console.error('Error fetching monthly report:', error);

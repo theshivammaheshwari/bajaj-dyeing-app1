@@ -189,6 +189,24 @@ class ModifyPendingTaskRequest(BaseModel):
     weight: Optional[float] = None
 
 
+def safe_float(val, default=0.0) -> float:
+    try:
+        if val is None or val == "":
+            return default
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(val, default=0) -> int:
+    try:
+        if val is None or val == "":
+            return default
+        return int(float(val))
+    except (ValueError, TypeError):
+        return default
+
+
 # Helper function to convert MongoDB ObjectId to string
 def shade_helper(shade) -> dict:
     return {
@@ -1367,32 +1385,31 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
             
             # 1. Manual Machine Tasks
             for machine_id, mc in machine_capacities.items():
-                tasks = dt.get(machine_id, [])
+                tasks = dt.get(machine_id) or []
+                if not isinstance(tasks, list):
+                    continue
                 for t in tasks:
+                    if not isinstance(t, dict):
+                        continue
                     t_master = "user2" if t.get("assigned_to") == "user2" else "user1"
                     if master and master != "all" and t_master != master:
                         continue
                         
-                    capacity = mc['capacity']
-                    tot_springs = mc['total_springs']
+                    capacity = safe_float(mc.get('capacity'), 12.0)
+                    tot_springs = safe_int(mc.get('total_springs'), 8)
                     kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
                     
-                    s2 = int(t.get("springs_2ply", 0) or 0)
-                    s3 = int(t.get("springs_3ply", 0) or 0)
+                    s2 = safe_int(t.get("springs_2ply", 0))
+                    s3 = safe_int(t.get("springs_3ply", 0))
                     
-                    # Exact weights or prorated
-                    if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
-                        w2 = float(t.get("ply2_weight", 0))
-                    else:
-                        w2 = s2 * kg_per_spring
-                        
-                    if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
-                        w3 = float(t.get("ply3_weight", 0))
-                    else:
-                        w3 = s3 * kg_per_spring
-                        
-                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
-                    status = t.get("status", "pending")
+                    pw2 = safe_float(t.get("ply2_weight", 0))
+                    w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
+                    
+                    pw3 = safe_float(t.get("ply3_weight", 0))
+                    w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+                    
+                    tot_w = (w2 + w3) if (w2 + w3) > 0 else safe_float(t.get("weight"), capacity)
+                    status = str(t.get("status", "pending") or "pending").strip().lower()
                     
                     if status == "completed":
                         m_stat["completed_2ply_kg"] += w2
@@ -1421,59 +1438,58 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                         m_stat["pending_batches"] += 1
 
             # 2. Automatic Tasks
-            auto_tasks = dt.get("automatic_tasks", [])
-            for t in auto_tasks:
-                t_master = "user2" if t.get("assigned_to") == "user2" else "user1"
-                if master and master != "all" and t_master != master:
-                    continue
+            auto_tasks = dt.get("automatic_tasks") or []
+            if isinstance(auto_tasks, list):
+                for t in auto_tasks:
+                    if not isinstance(t, dict):
+                        continue
+                    t_master = "user2" if t.get("assigned_to") == "user2" else "user1"
+                    if master and master != "all" and t_master != master:
+                        continue
+                        
+                    m_id = str(t.get("machine", "") or "").lower()
+                    mc = machine_capacities.get(m_id, {'capacity': 12.0, 'total_springs': 8})
+                    capacity = safe_float(t.get("weight"), mc['capacity'])
+                    tot_springs = safe_int(mc['total_springs'], 8)
+                    kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
                     
-                m_id = str(t.get("machine", "")).lower()
-                mc = machine_capacities.get(m_id, {'capacity': 12.0, 'total_springs': 8})
-                capacity = float(t.get("weight") or mc['capacity'])
-                tot_springs = mc['total_springs']
-                kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
-                
-                s2 = int(t.get("springs_2ply", 0) or 0)
-                s3 = int(t.get("springs_3ply", 0) or 0)
-                
-                if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
-                    w2 = float(t.get("ply2_weight", 0))
-                else:
-                    w2 = s2 * kg_per_spring
+                    s2 = safe_int(t.get("springs_2ply", 0))
+                    s3 = safe_int(t.get("springs_3ply", 0))
                     
-                if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
-                    w3 = float(t.get("ply3_weight", 0))
-                else:
-                    w3 = s3 * kg_per_spring
+                    pw2 = safe_float(t.get("ply2_weight", 0))
+                    w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
-                tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
-                status = t.get("status", "pending")
-                
-                if status == "completed":
-                    m_stat["completed_2ply_kg"] += w2
-                    m_stat["completed_3ply_kg"] += w3
-                    m_stat["completed_total_kg"] += tot_w
-                    m_stat["completed_springs_2ply"] += s2
-                    m_stat["completed_springs_3ply"] += s3
-                    m_stat["completed_batches"] += 1
-                    if t_master == "user1":
-                        m_stat["dm1_completed_kg"] += tot_w
+                    pw3 = safe_float(t.get("ply3_weight", 0))
+                    w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+                    
+                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                    status = str(t.get("status", "pending") or "pending").strip().lower()
+                    
+                    if status == "completed":
+                        m_stat["completed_2ply_kg"] += w2
+                        m_stat["completed_3ply_kg"] += w3
+                        m_stat["completed_total_kg"] += tot_w
+                        m_stat["completed_springs_2ply"] += s2
+                        m_stat["completed_springs_3ply"] += s3
+                        m_stat["completed_batches"] += 1
+                        if t_master == "user1":
+                            m_stat["dm1_completed_kg"] += tot_w
+                        else:
+                            m_stat["dm2_completed_kg"] += tot_w
+                    elif status == "rejected":
+                        m_stat["rejected_2ply_kg"] += w2
+                        m_stat["rejected_3ply_kg"] += w3
+                        m_stat["rejected_total_kg"] += tot_w
+                        m_stat["rejected_springs_2ply"] += s2
+                        m_stat["rejected_springs_3ply"] += s3
+                        m_stat["rejected_batches"] += 1
+                        if t_master == "user1":
+                            m_stat["dm1_rejected_kg"] += tot_w
+                        else:
+                            m_stat["dm2_rejected_kg"] += tot_w
                     else:
-                        m_stat["dm2_completed_kg"] += tot_w
-                elif status == "rejected":
-                    m_stat["rejected_2ply_kg"] += w2
-                    m_stat["rejected_3ply_kg"] += w3
-                    m_stat["rejected_total_kg"] += tot_w
-                    m_stat["rejected_springs_2ply"] += s2
-                    m_stat["rejected_springs_3ply"] += s3
-                    m_stat["rejected_batches"] += 1
-                    if t_master == "user1":
-                        m_stat["dm1_rejected_kg"] += tot_w
-                    else:
-                        m_stat["dm2_rejected_kg"] += tot_w
-                else:
-                    m_stat["pending_total_kg"] += tot_w
-                    m_stat["pending_batches"] += 1
+                        m_stat["pending_total_kg"] += tot_w
+                        m_stat["pending_batches"] += 1
 
         # Format and sort months
         months_list = []
