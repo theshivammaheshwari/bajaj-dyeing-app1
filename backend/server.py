@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -158,6 +159,34 @@ class DailyTaskCreate(BaseModel):
     m10: Optional[List[MachineTask]] = []
     m11: Optional[List[MachineTask]] = []
     automatic_tasks: Optional[List[MachineTask]] = []
+
+
+class ManualStockCreate(BaseModel):
+    shade_number: str
+    ply2_kg: float = 0.0
+    ply3_kg: float = 0.0
+    date: Optional[str] = None  # YYYY-MM-DD
+    notes: Optional[str] = "Manual entry"
+
+
+class ManualStockUpdate(BaseModel):
+    shade_number: Optional[str] = None
+    ply2_kg: Optional[float] = None
+    ply3_kg: Optional[float] = None
+    date: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ModifyPendingTaskRequest(BaseModel):
+    daily_task_id: str
+    machine_id: str  # m1...m11 or automatic_tasks
+    lot_id: str
+    shade_number: Optional[str] = None
+    springs_2ply: Optional[int] = None
+    springs_3ply: Optional[int] = None
+    ply2_weight: Optional[float] = None
+    ply3_weight: Optional[float] = None
+    weight: Optional[float] = None
 
 
 # Helper function to convert MongoDB ObjectId to string
@@ -1505,6 +1534,552 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
             },
             "months": months_list
         }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ----------------------------------------------------
+# Stock In Hand Endpoints (Ascending Shade, 2P & 3P, Manual Entry & Modify Pending)
+# ----------------------------------------------------
+@api_router.get("/stock-in-hand")
+async def get_stock_in_hand(
+    as_of_date: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """
+    Get consolidated Stock in Hand without master-wise division.
+    Sorted in ascending order of shade number.
+    Returns 2-PLY, 3-PLY, Total in Hand (kg + springs), manual additions,
+    and pending tasks with change/edit capability while not completed.
+    """
+    try:
+        machine_capacities = {
+            'm1': {'capacity': 10.5, 'total_springs': 7},
+            'm2': {'capacity': 12.0, 'total_springs': 8},
+            'm3': {'capacity': 12.0, 'total_springs': 8},
+            'm4': {'capacity': 6.0, 'total_springs': 4},
+            'm5': {'capacity': 24.0, 'total_springs': 16},
+            'm6': {'capacity': 15.0, 'total_springs': 10},
+            'm7': {'capacity': 15.0, 'total_springs': 10},
+            'm8': {'capacity': 12.0, 'total_springs': 8},
+            'm9': {'capacity': 12.0, 'total_springs': 8},
+            'm10': {'capacity': 6.0, 'total_springs': 4},
+            'm11': {'capacity': 6.0, 'total_springs': 4},
+        }
+        
+        # 1. Fetch all shade definitions from db.shades
+        shades_cursor = db.shades.find({})
+        all_shades = await shades_cursor.to_list(10000)
+        
+        shades_data = {}
+        for s in all_shades:
+            sn_raw = str(s.get("shade_number", "")).strip().lstrip("#")
+            if not sn_raw:
+                continue
+            shades_data[sn_raw.lower()] = {
+                "shade_number": sn_raw,
+                "shade_id": str(s.get("_id", "")),
+                "program_number": s.get("program_number", "P1"),
+                "rc": s.get("rc", "No"),
+                "completed_2ply_kg": 0.0,
+                "completed_3ply_kg": 0.0,
+                "completed_total_kg": 0.0,
+                "completed_springs_2ply": 0,
+                "completed_springs_3ply": 0,
+                "completed_batches": 0,
+                "manual_2ply_kg": 0.0,
+                "manual_3ply_kg": 0.0,
+                "manual_total_kg": 0.0,
+                "manual_entries": [],
+                "pending_2ply_kg": 0.0,
+                "pending_3ply_kg": 0.0,
+                "pending_total_kg": 0.0,
+                "pending_springs_2ply": 0,
+                "pending_springs_3ply": 0,
+                "pending_batches": 0,
+                "pending_tasks": [],
+                "last_batch_date": None,
+            }
+            
+        # 2. Fetch all daily tasks
+        daily_tasks_cursor = db.daily_tasks.find({})
+        daily_tasks = await daily_tasks_cursor.to_list(10000)
+        
+        machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
+        
+        for dt in daily_tasks:
+            dt_date = dt.get("date", "")
+            if as_of_date and dt_date > as_of_date:
+                continue
+            if from_date and dt_date < from_date:
+                continue
+            if to_date and dt_date > to_date:
+                continue
+                
+            # Manual Machine Tasks
+            for m_id in machines:
+                tasks = dt.get(m_id, [])
+                mc = machine_capacities.get(m_id, {'capacity': 12.0, 'total_springs': 8})
+                
+                for t in tasks:
+                    sn_raw = str(t.get('shade_number', '')).strip().lstrip("#")
+                    if not sn_raw:
+                        continue
+                    sn_key = sn_raw.lower()
+                    if sn_key not in shades_data:
+                        shades_data[sn_key] = {
+                            "shade_number": sn_raw,
+                            "shade_id": None,
+                            "program_number": "P1",
+                            "rc": "No",
+                            "completed_2ply_kg": 0.0,
+                            "completed_3ply_kg": 0.0,
+                            "completed_total_kg": 0.0,
+                            "completed_springs_2ply": 0,
+                            "completed_springs_3ply": 0,
+                            "completed_batches": 0,
+                            "manual_2ply_kg": 0.0,
+                            "manual_3ply_kg": 0.0,
+                            "manual_total_kg": 0.0,
+                            "manual_entries": [],
+                            "pending_2ply_kg": 0.0,
+                            "pending_3ply_kg": 0.0,
+                            "pending_total_kg": 0.0,
+                            "pending_springs_2ply": 0,
+                            "pending_springs_3ply": 0,
+                            "pending_batches": 0,
+                            "pending_tasks": [],
+                            "last_batch_date": None,
+                        }
+                    
+                    capacity = float(t.get("weight") or mc['capacity'])
+                    tot_springs = mc['total_springs']
+                    kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
+                    
+                    s2 = int(t.get("springs_2ply", 0) or 0)
+                    s3 = int(t.get("springs_3ply", 0) or 0)
+                    
+                    if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
+                        w2 = float(t.get("ply2_weight", 0))
+                    else:
+                        w2 = s2 * kg_per_spring
+                        
+                    if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
+                        w3 = float(t.get("ply3_weight", 0))
+                    else:
+                        w3 = s3 * kg_per_spring
+                        
+                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                    status = str(t.get("status", "pending")).lower()
+                    
+                    if status == "completed":
+                        shades_data[sn_key]["completed_2ply_kg"] += w2
+                        shades_data[sn_key]["completed_3ply_kg"] += w3
+                        shades_data[sn_key]["completed_total_kg"] += tot_w
+                        shades_data[sn_key]["completed_springs_2ply"] += s2
+                        shades_data[sn_key]["completed_springs_3ply"] += s3
+                        shades_data[sn_key]["completed_batches"] += 1
+                        curr_last = shades_data[sn_key]["last_batch_date"]
+                        if not curr_last or dt_date > curr_last:
+                            shades_data[sn_key]["last_batch_date"] = dt_date
+                    elif status in ["pending", "in-progress"]:
+                        shades_data[sn_key]["pending_2ply_kg"] += w2
+                        shades_data[sn_key]["pending_3ply_kg"] += w3
+                        shades_data[sn_key]["pending_total_kg"] += tot_w
+                        shades_data[sn_key]["pending_springs_2ply"] += s2
+                        shades_data[sn_key]["pending_springs_3ply"] += s3
+                        shades_data[sn_key]["pending_batches"] += 1
+                        shades_data[sn_key]["pending_tasks"].append({
+                            "task_id": str(t.get("id", "")),
+                            "daily_task_id": str(dt["_id"]),
+                            "date": dt_date,
+                            "machine": m_id.upper(),
+                            "machine_id": m_id,
+                            "shade_number": sn_raw,
+                            "springs_2ply": s2,
+                            "springs_3ply": s3,
+                            "weight": round(tot_w, 2),
+                            "ply2_weight": round(w2, 2),
+                            "ply3_weight": round(w3, 2),
+                            "status": status,
+                            "assigned_to": t.get("assigned_to", "user1"),
+                            "can_modify": True
+                        })
+                        
+            # Automatic Tasks
+            auto_tasks = dt.get("automatic_tasks", [])
+            for t in auto_tasks:
+                sn_raw = str(t.get('shade_number', '')).strip().lstrip("#")
+                if not sn_raw:
+                    continue
+                sn_key = sn_raw.lower()
+                if sn_key not in shades_data:
+                    shades_data[sn_key] = {
+                        "shade_number": sn_raw,
+                        "shade_id": None,
+                        "program_number": "P1",
+                        "rc": "No",
+                        "completed_2ply_kg": 0.0,
+                        "completed_3ply_kg": 0.0,
+                        "completed_total_kg": 0.0,
+                        "completed_springs_2ply": 0,
+                        "completed_springs_3ply": 0,
+                        "completed_batches": 0,
+                        "manual_2ply_kg": 0.0,
+                        "manual_3ply_kg": 0.0,
+                        "manual_total_kg": 0.0,
+                        "manual_entries": [],
+                        "pending_2ply_kg": 0.0,
+                        "pending_3ply_kg": 0.0,
+                        "pending_total_kg": 0.0,
+                        "pending_springs_2ply": 0,
+                        "pending_springs_3ply": 0,
+                        "pending_batches": 0,
+                        "pending_tasks": [],
+                        "last_batch_date": None,
+                    }
+                    
+                m_label = str(t.get("machine", "")).lower()
+                mc = machine_capacities.get(m_label, {'capacity': 12.0, 'total_springs': 8})
+                capacity = float(t.get("weight") or mc['capacity'])
+                tot_springs = mc['total_springs']
+                kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
+                
+                s2 = int(t.get("springs_2ply", 0) or 0)
+                s3 = int(t.get("springs_3ply", 0) or 0)
+                
+                if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
+                    w2 = float(t.get("ply2_weight", 0))
+                else:
+                    w2 = s2 * kg_per_spring
+                    
+                if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
+                    w3 = float(t.get("ply3_weight", 0))
+                else:
+                    w3 = s3 * kg_per_spring
+                    
+                tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                status = str(t.get("status", "pending")).lower()
+                
+                if status == "completed":
+                    shades_data[sn_key]["completed_2ply_kg"] += w2
+                    shades_data[sn_key]["completed_3ply_kg"] += w3
+                    shades_data[sn_key]["completed_total_kg"] += tot_w
+                    shades_data[sn_key]["completed_springs_2ply"] += s2
+                    shades_data[sn_key]["completed_springs_3ply"] += s3
+                    shades_data[sn_key]["completed_batches"] += 1
+                    curr_last = shades_data[sn_key]["last_batch_date"]
+                    if not curr_last or dt_date > curr_last:
+                        shades_data[sn_key]["last_batch_date"] = dt_date
+                elif status in ["pending", "in-progress"]:
+                    shades_data[sn_key]["pending_2ply_kg"] += w2
+                    shades_data[sn_key]["pending_3ply_kg"] += w3
+                    shades_data[sn_key]["pending_total_kg"] += tot_w
+                    shades_data[sn_key]["pending_springs_2ply"] += s2
+                    shades_data[sn_key]["pending_springs_3ply"] += s3
+                    shades_data[sn_key]["pending_batches"] += 1
+                    shades_data[sn_key]["pending_tasks"].append({
+                        "task_id": str(t.get("id", "")),
+                        "daily_task_id": str(dt["_id"]),
+                        "date": dt_date,
+                        "machine": str(t.get("machine", "AUTO")).upper(),
+                        "machine_id": "automatic_tasks",
+                        "shade_number": sn_raw,
+                        "springs_2ply": s2,
+                        "springs_3ply": s3,
+                        "weight": round(tot_w, 2),
+                        "ply2_weight": round(w2, 2),
+                        "ply3_weight": round(w3, 2),
+                        "status": status,
+                        "assigned_to": t.get("assigned_to", "user1"),
+                        "can_modify": True
+                    })
+
+        # 3. Fetch manual entries from db.stock_entries
+        stock_entries_cursor = db.stock_entries.find({})
+        stock_entries = await stock_entries_cursor.to_list(10000)
+        
+        for entry in stock_entries:
+            entry_date = entry.get("date", "")
+            if as_of_date and entry_date > as_of_date:
+                continue
+            if from_date and entry_date < from_date:
+                continue
+            if to_date and entry_date > to_date:
+                continue
+                
+            sn_raw = str(entry.get("shade_number", "")).strip().lstrip("#")
+            if not sn_raw:
+                continue
+            sn_key = sn_raw.lower()
+            if sn_key not in shades_data:
+                shades_data[sn_key] = {
+                    "shade_number": sn_raw,
+                    "shade_id": None,
+                    "program_number": "P1",
+                    "rc": "No",
+                    "completed_2ply_kg": 0.0,
+                    "completed_3ply_kg": 0.0,
+                    "completed_total_kg": 0.0,
+                    "completed_springs_2ply": 0,
+                    "completed_springs_3ply": 0,
+                    "completed_batches": 0,
+                    "manual_2ply_kg": 0.0,
+                    "manual_3ply_kg": 0.0,
+                    "manual_total_kg": 0.0,
+                    "manual_entries": [],
+                    "pending_2ply_kg": 0.0,
+                    "pending_3ply_kg": 0.0,
+                    "pending_total_kg": 0.0,
+                    "pending_springs_2ply": 0,
+                    "pending_springs_3ply": 0,
+                    "pending_batches": 0,
+                    "pending_tasks": [],
+                    "last_batch_date": None,
+                }
+                
+            p2 = float(entry.get("ply2_kg", 0) or 0)
+            p3 = float(entry.get("ply3_kg", 0) or 0)
+            shades_data[sn_key]["manual_2ply_kg"] += p2
+            shades_data[sn_key]["manual_3ply_kg"] += p3
+            shades_data[sn_key]["manual_total_kg"] += (p2 + p3)
+            shades_data[sn_key]["manual_entries"].append({
+                "id": str(entry["_id"]),
+                "date": entry_date,
+                "ply2_kg": round(p2, 2),
+                "ply3_kg": round(p3, 2),
+                "total_kg": round(p2 + p3, 2),
+                "notes": entry.get("notes", "Manual entry"),
+                "created_at": str(entry.get("created_at", ""))
+            })
+            
+        # 4. Consolidate and round current stocks
+        items_list = []
+        for sn_key, data in shades_data.items():
+            data["completed_2ply_kg"] = round(data["completed_2ply_kg"], 2)
+            data["completed_3ply_kg"] = round(data["completed_3ply_kg"], 2)
+            data["completed_total_kg"] = round(data["completed_total_kg"], 2)
+            data["manual_2ply_kg"] = round(data["manual_2ply_kg"], 2)
+            data["manual_3ply_kg"] = round(data["manual_3ply_kg"], 2)
+            data["manual_total_kg"] = round(data["manual_total_kg"], 2)
+            
+            # Current stock in hand = completed production + manual stock adjustments
+            stock_2p = round(data["completed_2ply_kg"] + data["manual_2ply_kg"], 2)
+            stock_3p = round(data["completed_3ply_kg"] + data["manual_3ply_kg"], 2)
+            stock_tot = round(stock_2p + stock_3p, 2)
+            
+            data["current_stock_2ply_kg"] = stock_2p
+            data["current_stock_3ply_kg"] = stock_3p
+            data["current_stock_total_kg"] = stock_tot
+            
+            data["pending_2ply_kg"] = round(data["pending_2ply_kg"], 2)
+            data["pending_3ply_kg"] = round(data["pending_3ply_kg"], 2)
+            data["pending_total_kg"] = round(data["pending_total_kg"], 2)
+            
+            # Sort pending tasks descending by date
+            data["pending_tasks"].sort(key=lambda x: str(x.get("date", "")), reverse=True)
+            # Sort manual entries descending by date
+            data["manual_entries"].sort(key=lambda x: str(x.get("date", "")), reverse=True)
+            
+            items_list.append(data)
+            
+        # 5. Natural Ascending Sorting by Shade Number
+        def natural_shade_sort(item):
+            sn = str(item.get("shade_number", "")).strip()
+            parts = re.split(r'(\d+)', sn)
+            res = []
+            for p in parts:
+                if p.isdigit():
+                    res.append(int(p))
+                else:
+                    res.append(p.lower())
+            return res
+            
+        items_list.sort(key=natural_shade_sort)
+        
+        # 6. Apply search filter if provided
+        if search and search.strip():
+            q = search.strip().lower().lstrip("#")
+            items_list = [i for i in items_list if q in i["shade_number"].lower()]
+            
+        # 7. Grand Totals
+        grand_current_stock_total_kg = round(sum(i["current_stock_total_kg"] for i in items_list), 2)
+        grand_current_stock_2ply_kg = round(sum(i["current_stock_2ply_kg"] for i in items_list), 2)
+        grand_current_stock_3ply_kg = round(sum(i["current_stock_3ply_kg"] for i in items_list), 2)
+        grand_completed_springs_2ply = sum(i["completed_springs_2ply"] for i in items_list)
+        grand_completed_springs_3ply = sum(i["completed_springs_3ply"] for i in items_list)
+        grand_pending_total_kg = round(sum(i["pending_total_kg"] for i in items_list), 2)
+        grand_pending_batches = sum(i["pending_batches"] for i in items_list)
+        in_stock_count = len([i for i in items_list if i["current_stock_total_kg"] > 0])
+        
+        return {
+            "filters": {
+                "as_of_date": as_of_date,
+                "from_date": from_date,
+                "to_date": to_date,
+                "search": search
+            },
+            "summary": {
+                "total_stock_kg": grand_current_stock_total_kg,
+                "total_2ply_kg": grand_current_stock_2ply_kg,
+                "total_3ply_kg": grand_current_stock_3ply_kg,
+                "total_completed_springs_2ply": grand_completed_springs_2ply,
+                "total_completed_springs_3ply": grand_completed_springs_3ply,
+                "total_pending_kg": grand_pending_total_kg,
+                "total_pending_batches": grand_pending_batches,
+                "total_shades_count": len(items_list),
+                "in_stock_shades_count": in_stock_count,
+            },
+            "shades": items_list
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.put("/stock-in-hand/modify-pending-task")
+async def modify_pending_task(req: ModifyPendingTaskRequest):
+    """
+    Modify an ongoing task lot (change shade, springs 2P/3P, weight)
+    Strict Rule: Only allowed while task status is NOT 'completed'.
+    """
+    try:
+        daily_task = await db.daily_tasks.find_one({"_id": ObjectId(req.daily_task_id)})
+        if not daily_task:
+            raise HTTPException(status_code=404, detail="Daily task record not found")
+            
+        machine_key = req.machine_id.lower()
+        machine_tasks = daily_task.get(machine_key, [])
+        task_index = -1
+        for i, t in enumerate(machine_tasks):
+            if str(t.get("id")) == str(req.lot_id):
+                task_index = i
+                break
+                
+        if task_index == -1:
+            try:
+                idx = int(req.lot_id)
+                if 0 <= idx < len(machine_tasks):
+                    task_index = idx
+            except ValueError:
+                pass
+                
+        if task_index == -1:
+            raise HTTPException(status_code=404, detail="Machine task lot not found")
+            
+        target_lot = machine_tasks[task_index]
+        current_status = str(target_lot.get("status", "pending")).lower()
+        if current_status == "completed":
+            raise HTTPException(
+                status_code=400, 
+                detail="Task has already been completed and confirmed. Change option is only available while task is pending or in-progress."
+            )
+            
+        if req.shade_number is not None:
+            clean_sn = str(req.shade_number).strip().lstrip("#")
+            target_lot["shade_number"] = clean_sn
+            target_lot["is_modified"] = True
+            
+        if req.springs_2ply is not None:
+            target_lot["springs_2ply"] = req.springs_2ply
+            
+        if req.springs_3ply is not None:
+            target_lot["springs_3ply"] = req.springs_3ply
+            
+        if req.ply2_weight is not None:
+            target_lot["ply2_weight"] = req.ply2_weight
+            
+        if req.ply3_weight is not None:
+            target_lot["ply3_weight"] = req.ply3_weight
+            
+        if req.weight is not None:
+            target_lot["weight"] = req.weight
+            
+        await db.daily_tasks.update_one(
+            {"_id": ObjectId(req.daily_task_id)},
+            {"$set": {machine_key: machine_tasks}}
+        )
+        
+        return {"message": "Pending task updated successfully", "task": target_lot}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.post("/stock-in-hand/manual")
+async def add_manual_stock(entry: ManualStockCreate):
+    """Add a manual stock entry/adjustment for a shade"""
+    try:
+        clean_sn = str(entry.shade_number).strip().lstrip("#")
+        today_str = entry.date or datetime.utcnow().strftime("%Y-%m-%d")
+        doc = {
+            "shade_number": clean_sn,
+            "ply2_kg": float(entry.ply2_kg or 0),
+            "ply3_kg": float(entry.ply3_kg or 0),
+            "date": today_str,
+            "notes": entry.notes or "Manual entry",
+            "created_at": datetime.utcnow()
+        }
+        res = await db.stock_entries.insert_one(doc)
+        created = await db.stock_entries.find_one({"_id": res.inserted_id})
+        return {
+            "id": str(created["_id"]),
+            "shade_number": created["shade_number"],
+            "ply2_kg": created["ply2_kg"],
+            "ply3_kg": created["ply3_kg"],
+            "date": created["date"],
+            "notes": created["notes"],
+            "message": "Manual stock entry added successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.put("/stock-in-hand/manual/{entry_id}")
+async def update_manual_stock(entry_id: str, entry: ManualStockUpdate):
+    """Update a manual stock entry"""
+    try:
+        update_data = {}
+        if entry.shade_number is not None:
+            update_data["shade_number"] = str(entry.shade_number).strip().lstrip("#")
+        if entry.ply2_kg is not None:
+            update_data["ply2_kg"] = float(entry.ply2_kg)
+        if entry.ply3_kg is not None:
+            update_data["ply3_kg"] = float(entry.ply3_kg)
+        if entry.date is not None:
+            update_data["date"] = entry.date
+        if entry.notes is not None:
+            update_data["notes"] = entry.notes
+            
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields provided for update")
+            
+        res = await db.stock_entries.update_one(
+            {"_id": ObjectId(entry_id)},
+            {"$set": update_data}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Manual stock entry not found")
+            
+        return {"message": "Manual stock entry updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.delete("/stock-in-hand/manual/{entry_id}")
+async def delete_manual_stock(entry_id: str):
+    """Delete a manual stock entry"""
+    try:
+        res = await db.stock_entries.delete_one({"_id": ObjectId(entry_id)})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Manual stock entry not found")
+        return {"message": "Manual stock entry deleted successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

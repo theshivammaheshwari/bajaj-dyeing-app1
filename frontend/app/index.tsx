@@ -258,6 +258,14 @@ export default function Index() {
           <Text style={styles.quickActionIcon}>📊</Text>
           <Text style={styles.quickActionText}>Monthly Report</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#0D9488' }]}
+          onPress={() => router.push('/stock-in-hand' as any)}
+        >
+          <Text style={styles.quickActionIcon}>📦</Text>
+          <Text style={styles.quickActionText}>Stock in Hand</Text>
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -348,15 +356,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 14,
     flexDirection: 'row',
-    gap: 12,
+    flexWrap: 'wrap',
+    gap: 10,
   },
   quickActionButton: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '18%',
+    minWidth: 125,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 13,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     borderRadius: 12,
     gap: 8,
     shadowOffset: { width: 0, height: 2 },
