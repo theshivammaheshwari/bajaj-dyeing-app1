@@ -153,7 +153,9 @@ export default function StockInHandScreen() {
         const data = await response.json();
         setStockData(data);
       } else {
-        showAlert('Error', 'Failed to load stock in hand data');
+        const errJson = await response.json().catch(() => null);
+        const errMsg = errJson?.detail || `Server error (${response.status})`;
+        showAlert('Error', errMsg);
       }
     } catch (error) {
       console.error('Error fetching stock data:', error);

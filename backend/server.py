@@ -1636,11 +1636,15 @@ async def get_stock_in_hand(
                 
             # Manual Machine Tasks
             for m_id in machines:
-                tasks = dt.get(m_id, [])
+                tasks = dt.get(m_id) or []
+                if not isinstance(tasks, list):
+                    continue
                 mc = machine_capacities.get(m_id, {'capacity': 12.0, 'total_springs': 8})
                 
                 for t in tasks:
-                    sn_raw = str(t.get('shade_number', '')).strip().lstrip("#")
+                    if not isinstance(t, dict):
+                        continue
+                    sn_raw = str(t.get('shade_number', '') or '').strip().lstrip("#")
                     if not sn_raw:
                         continue
                     sn_key = sn_raw.lower()
@@ -1670,25 +1674,21 @@ async def get_stock_in_hand(
                             "last_batch_date": None,
                         }
                     
-                    capacity = float(t.get("weight") or mc['capacity'])
-                    tot_springs = mc['total_springs']
+                    capacity = safe_float(mc.get('capacity'), 12.0)
+                    tot_springs = safe_int(mc.get('total_springs'), 8)
                     kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
                     
-                    s2 = int(t.get("springs_2ply", 0) or 0)
-                    s3 = int(t.get("springs_3ply", 0) or 0)
+                    s2 = safe_int(t.get("springs_2ply", 0))
+                    s3 = safe_int(t.get("springs_3ply", 0))
                     
-                    if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
-                        w2 = float(t.get("ply2_weight", 0))
-                    else:
-                        w2 = s2 * kg_per_spring
-                        
-                    if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
-                        w3 = float(t.get("ply3_weight", 0))
-                    else:
-                        w3 = s3 * kg_per_spring
-                        
-                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
-                    status = str(t.get("status", "pending")).lower()
+                    pw2 = safe_float(t.get("ply2_weight", 0))
+                    w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
+                    
+                    pw3 = safe_float(t.get("ply3_weight", 0))
+                    w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+                    
+                    tot_w = (w2 + w3) if (w2 + w3) > 0 else safe_float(t.get("weight"), capacity)
+                    status = str(t.get("status", "pending") or "pending").strip().lower()
                     
                     if status == "completed":
                         shades_data[sn_key]["completed_2ply_kg"] += w2
@@ -1708,8 +1708,8 @@ async def get_stock_in_hand(
                         shades_data[sn_key]["pending_springs_3ply"] += s3
                         shades_data[sn_key]["pending_batches"] += 1
                         shades_data[sn_key]["pending_tasks"].append({
-                            "task_id": str(t.get("id", "")),
-                            "daily_task_id": str(dt["_id"]),
+                            "task_id": str(t.get("id", "") or ""),
+                            "daily_task_id": str(dt.get("_id", "")),
                             "date": dt_date,
                             "machine": m_id.upper(),
                             "machine_id": m_id,
@@ -1720,105 +1720,106 @@ async def get_stock_in_hand(
                             "ply2_weight": round(w2, 2),
                             "ply3_weight": round(w3, 2),
                             "status": status,
-                            "assigned_to": t.get("assigned_to", "user1"),
+                            "assigned_to": str(t.get("assigned_to", "user1") or "user1"),
                             "can_modify": True
                         })
                         
             # Automatic Tasks
-            auto_tasks = dt.get("automatic_tasks", [])
-            for t in auto_tasks:
-                sn_raw = str(t.get('shade_number', '')).strip().lstrip("#")
-                if not sn_raw:
-                    continue
-                sn_key = sn_raw.lower()
-                if sn_key not in shades_data:
-                    shades_data[sn_key] = {
-                        "shade_number": sn_raw,
-                        "shade_id": None,
-                        "program_number": "P1",
-                        "rc": "No",
-                        "completed_2ply_kg": 0.0,
-                        "completed_3ply_kg": 0.0,
-                        "completed_total_kg": 0.0,
-                        "completed_springs_2ply": 0,
-                        "completed_springs_3ply": 0,
-                        "completed_batches": 0,
-                        "manual_2ply_kg": 0.0,
-                        "manual_3ply_kg": 0.0,
-                        "manual_total_kg": 0.0,
-                        "manual_entries": [],
-                        "pending_2ply_kg": 0.0,
-                        "pending_3ply_kg": 0.0,
-                        "pending_total_kg": 0.0,
-                        "pending_springs_2ply": 0,
-                        "pending_springs_3ply": 0,
-                        "pending_batches": 0,
-                        "pending_tasks": [],
-                        "last_batch_date": None,
-                    }
+            auto_tasks = dt.get("automatic_tasks") or []
+            if isinstance(auto_tasks, list):
+                for t in auto_tasks:
+                    if not isinstance(t, dict):
+                        continue
+                    sn_raw = str(t.get('shade_number', '') or '').strip().lstrip("#")
+                    if not sn_raw:
+                        continue
+                    sn_key = sn_raw.lower()
+                    if sn_key not in shades_data:
+                        shades_data[sn_key] = {
+                            "shade_number": sn_raw,
+                            "shade_id": None,
+                            "program_number": "P1",
+                            "rc": "No",
+                            "completed_2ply_kg": 0.0,
+                            "completed_3ply_kg": 0.0,
+                            "completed_total_kg": 0.0,
+                            "completed_springs_2ply": 0,
+                            "completed_springs_3ply": 0,
+                            "completed_batches": 0,
+                            "manual_2ply_kg": 0.0,
+                            "manual_3ply_kg": 0.0,
+                            "manual_total_kg": 0.0,
+                            "manual_entries": [],
+                            "pending_2ply_kg": 0.0,
+                            "pending_3ply_kg": 0.0,
+                            "pending_total_kg": 0.0,
+                            "pending_springs_2ply": 0,
+                            "pending_springs_3ply": 0,
+                            "pending_batches": 0,
+                            "pending_tasks": [],
+                            "last_batch_date": None,
+                        }
+                        
+                    m_label = str(t.get("machine", "") or "").lower()
+                    mc = machine_capacities.get(m_label, {'capacity': 12.0, 'total_springs': 8})
+                    capacity = safe_float(mc.get('capacity'), 12.0)
+                    tot_springs = safe_int(mc.get('total_springs'), 8)
+                    kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
                     
-                m_label = str(t.get("machine", "")).lower()
-                mc = machine_capacities.get(m_label, {'capacity': 12.0, 'total_springs': 8})
-                capacity = float(t.get("weight") or mc['capacity'])
-                tot_springs = mc['total_springs']
-                kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
-                
-                s2 = int(t.get("springs_2ply", 0) or 0)
-                s3 = int(t.get("springs_3ply", 0) or 0)
-                
-                if t.get("ply2_weight") and float(t.get("ply2_weight", 0)) > 0:
-                    w2 = float(t.get("ply2_weight", 0))
-                else:
-                    w2 = s2 * kg_per_spring
+                    s2 = safe_int(t.get("springs_2ply", 0))
+                    s3 = safe_int(t.get("springs_3ply", 0))
                     
-                if t.get("ply3_weight") and float(t.get("ply3_weight", 0)) > 0:
-                    w3 = float(t.get("ply3_weight", 0))
-                else:
-                    w3 = s3 * kg_per_spring
+                    pw2 = safe_float(t.get("ply2_weight", 0))
+                    w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
-                tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
-                status = str(t.get("status", "pending")).lower()
-                
-                if status == "completed":
-                    shades_data[sn_key]["completed_2ply_kg"] += w2
-                    shades_data[sn_key]["completed_3ply_kg"] += w3
-                    shades_data[sn_key]["completed_total_kg"] += tot_w
-                    shades_data[sn_key]["completed_springs_2ply"] += s2
-                    shades_data[sn_key]["completed_springs_3ply"] += s3
-                    shades_data[sn_key]["completed_batches"] += 1
-                    curr_last = shades_data[sn_key]["last_batch_date"]
-                    if not curr_last or dt_date > curr_last:
-                        shades_data[sn_key]["last_batch_date"] = dt_date
-                elif status in ["pending", "in-progress"]:
-                    shades_data[sn_key]["pending_2ply_kg"] += w2
-                    shades_data[sn_key]["pending_3ply_kg"] += w3
-                    shades_data[sn_key]["pending_total_kg"] += tot_w
-                    shades_data[sn_key]["pending_springs_2ply"] += s2
-                    shades_data[sn_key]["pending_springs_3ply"] += s3
-                    shades_data[sn_key]["pending_batches"] += 1
-                    shades_data[sn_key]["pending_tasks"].append({
-                        "task_id": str(t.get("id", "")),
-                        "daily_task_id": str(dt["_id"]),
-                        "date": dt_date,
-                        "machine": str(t.get("machine", "AUTO")).upper(),
-                        "machine_id": "automatic_tasks",
-                        "shade_number": sn_raw,
-                        "springs_2ply": s2,
-                        "springs_3ply": s3,
-                        "weight": round(tot_w, 2),
-                        "ply2_weight": round(w2, 2),
-                        "ply3_weight": round(w3, 2),
-                        "status": status,
-                        "assigned_to": t.get("assigned_to", "user1"),
-                        "can_modify": True
-                    })
+                    pw3 = safe_float(t.get("ply3_weight", 0))
+                    w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+                    
+                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                    status = str(t.get("status", "pending") or "pending").strip().lower()
+                    
+                    if status == "completed":
+                        shades_data[sn_key]["completed_2ply_kg"] += w2
+                        shades_data[sn_key]["completed_3ply_kg"] += w3
+                        shades_data[sn_key]["completed_total_kg"] += tot_w
+                        shades_data[sn_key]["completed_springs_2ply"] += s2
+                        shades_data[sn_key]["completed_springs_3ply"] += s3
+                        shades_data[sn_key]["completed_batches"] += 1
+                        curr_last = shades_data[sn_key]["last_batch_date"]
+                        if not curr_last or dt_date > curr_last:
+                            shades_data[sn_key]["last_batch_date"] = dt_date
+                    elif status in ["pending", "in-progress"]:
+                        shades_data[sn_key]["pending_2ply_kg"] += w2
+                        shades_data[sn_key]["pending_3ply_kg"] += w3
+                        shades_data[sn_key]["pending_total_kg"] += tot_w
+                        shades_data[sn_key]["pending_springs_2ply"] += s2
+                        shades_data[sn_key]["pending_springs_3ply"] += s3
+                        shades_data[sn_key]["pending_batches"] += 1
+                        shades_data[sn_key]["pending_tasks"].append({
+                            "task_id": str(t.get("id", "") or ""),
+                            "daily_task_id": str(dt.get("_id", "")),
+                            "date": dt_date,
+                            "machine": str(t.get("machine", "AUTO")).upper(),
+                            "machine_id": "automatic_tasks",
+                            "shade_number": sn_raw,
+                            "springs_2ply": s2,
+                            "springs_3ply": s3,
+                            "weight": round(tot_w, 2),
+                            "ply2_weight": round(w2, 2),
+                            "ply3_weight": round(w3, 2),
+                            "status": status,
+                            "assigned_to": str(t.get("assigned_to", "user1") or "user1"),
+                            "can_modify": True
+                        })
 
         # 3. Fetch manual entries from db.stock_entries
         stock_entries_cursor = db.stock_entries.find({})
         stock_entries = await stock_entries_cursor.to_list(10000)
         
         for entry in stock_entries:
-            entry_date = entry.get("date", "")
+            if not isinstance(entry, dict):
+                continue
+            entry_date = str(entry.get("date", "") or "").strip()
             if as_of_date and entry_date > as_of_date:
                 continue
             if from_date and entry_date < from_date:
@@ -1826,7 +1827,7 @@ async def get_stock_in_hand(
             if to_date and entry_date > to_date:
                 continue
                 
-            sn_raw = str(entry.get("shade_number", "")).strip().lstrip("#")
+            sn_raw = str(entry.get("shade_number", "") or "").strip().lstrip("#")
             if not sn_raw:
                 continue
             sn_key = sn_raw.lower()
@@ -1856,19 +1857,19 @@ async def get_stock_in_hand(
                     "last_batch_date": None,
                 }
                 
-            p2 = float(entry.get("ply2_kg", 0) or 0)
-            p3 = float(entry.get("ply3_kg", 0) or 0)
+            p2 = safe_float(entry.get("ply2_kg", 0))
+            p3 = safe_float(entry.get("ply3_kg", 0))
             shades_data[sn_key]["manual_2ply_kg"] += p2
             shades_data[sn_key]["manual_3ply_kg"] += p3
             shades_data[sn_key]["manual_total_kg"] += (p2 + p3)
             shades_data[sn_key]["manual_entries"].append({
-                "id": str(entry["_id"]),
+                "id": str(entry.get("_id", "")),
                 "date": entry_date,
                 "ply2_kg": round(p2, 2),
                 "ply3_kg": round(p3, 2),
                 "total_kg": round(p2 + p3, 2),
-                "notes": entry.get("notes", "Manual entry"),
-                "created_at": str(entry.get("created_at", ""))
+                "notes": str(entry.get("notes", "Manual entry") or ""),
+                "created_at": str(entry.get("created_at", "") or "")
             })
             
         # 4. Consolidate and round current stocks
