@@ -189,6 +189,16 @@ class ModifyPendingTaskRequest(BaseModel):
     weight: Optional[float] = None
 
 
+class AdjustSpringsRequest(BaseModel):
+    shade_number: str
+    ply_type: str = "2ply"  # "2ply" or "3ply" or "both"
+    action: str = "increment"  # "increment", "decrement", "set"
+    delta: Optional[int] = 1
+    value: Optional[int] = None
+    springs_2ply: Optional[int] = None
+    springs_3ply: Optional[int] = None
+
+
 def safe_float(val, default=0.0) -> float:
     try:
         if val is None or val == "":
@@ -1872,6 +1882,44 @@ async def get_stock_in_hand(
                 "created_at": str(entry.get("created_at", "") or "")
             })
             
+        # 3.5. Fetch spring overrides/adjustments from db.shade_spring_stocks
+        spring_stocks_cursor = db.shade_spring_stocks.find({})
+        spring_stocks = await spring_stocks_cursor.to_list(10000)
+        spring_overrides = {}
+        for s_doc in spring_stocks:
+            if isinstance(s_doc, dict):
+                s_key = str(s_doc.get("shade_number", "") or "").strip().lower().lstrip("#")
+                if s_key:
+                    spring_overrides[s_key] = {
+                        "springs_2ply": safe_int(s_doc.get("springs_2ply")),
+                        "springs_3ply": safe_int(s_doc.get("springs_3ply")),
+                    }
+                    if s_key not in shades_data:
+                        shades_data[s_key] = {
+                            "shade_number": str(s_doc.get("shade_number", "") or "").strip().lstrip("#"),
+                            "shade_id": None,
+                            "program_number": "P1",
+                            "rc": "No",
+                            "completed_2ply_kg": 0.0,
+                            "completed_3ply_kg": 0.0,
+                            "completed_total_kg": 0.0,
+                            "completed_springs_2ply": 0,
+                            "completed_springs_3ply": 0,
+                            "completed_batches": 0,
+                            "manual_2ply_kg": 0.0,
+                            "manual_3ply_kg": 0.0,
+                            "manual_total_kg": 0.0,
+                            "manual_entries": [],
+                            "pending_2ply_kg": 0.0,
+                            "pending_3ply_kg": 0.0,
+                            "pending_total_kg": 0.0,
+                            "pending_springs_2ply": 0,
+                            "pending_springs_3ply": 0,
+                            "pending_batches": 0,
+                            "pending_tasks": [],
+                            "last_batch_date": None,
+                        }
+            
         # 4. Consolidate and round current stocks
         items_list = []
         for sn_key, data in shades_data.items():
@@ -1890,6 +1938,25 @@ async def get_stock_in_hand(
             data["current_stock_2ply_kg"] = stock_2p
             data["current_stock_3ply_kg"] = stock_3p
             data["current_stock_total_kg"] = stock_tot
+            
+            # SPRINGS LOGIC (Primary metric requested by client)
+            if sn_key in spring_overrides:
+                data["springs_2ply"] = max(0, spring_overrides[sn_key]["springs_2ply"])
+                data["springs_3ply"] = max(0, spring_overrides[sn_key]["springs_3ply"])
+                data["is_spring_custom"] = True
+            else:
+                data["springs_2ply"] = max(0, data["completed_springs_2ply"])
+                data["springs_3ply"] = max(0, data["completed_springs_3ply"])
+                data["is_spring_custom"] = False
+                
+            data["total_springs"] = data["springs_2ply"] + data["springs_3ply"]
+            
+            # 3-digit padded number e.g. 001, 002, 120 (Matches physical factory list format)
+            sn_clean = data["shade_number"].strip()
+            if sn_clean.isdigit():
+                data["display_number"] = sn_clean.zfill(3)
+            else:
+                data["display_number"] = sn_clean
             
             data["pending_2ply_kg"] = round(data["pending_2ply_kg"], 2)
             data["pending_3ply_kg"] = round(data["pending_3ply_kg"], 2)
@@ -1919,17 +1986,14 @@ async def get_stock_in_hand(
         # 6. Apply search filter if provided
         if search and search.strip():
             q = search.strip().lower().lstrip("#")
-            items_list = [i for i in items_list if q in i["shade_number"].lower()]
+            items_list = [i for i in items_list if q in i["shade_number"].lower() or q in i.get("display_number", "").lower()]
             
-        # 7. Grand Totals
-        grand_current_stock_total_kg = round(sum(i["current_stock_total_kg"] for i in items_list), 2)
-        grand_current_stock_2ply_kg = round(sum(i["current_stock_2ply_kg"] for i in items_list), 2)
-        grand_current_stock_3ply_kg = round(sum(i["current_stock_3ply_kg"] for i in items_list), 2)
-        grand_completed_springs_2ply = sum(i["completed_springs_2ply"] for i in items_list)
-        grand_completed_springs_3ply = sum(i["completed_springs_3ply"] for i in items_list)
-        grand_pending_total_kg = round(sum(i["pending_total_kg"] for i in items_list), 2)
+        # 7. Grand Totals (Focusing on Springs count as primary)
+        grand_total_springs = sum(i["total_springs"] for i in items_list)
+        grand_springs_2ply = sum(i["springs_2ply"] for i in items_list)
+        grand_springs_3ply = sum(i["springs_3ply"] for i in items_list)
+        in_stock_shades_count = len([i for i in items_list if i["total_springs"] > 0])
         grand_pending_batches = sum(i["pending_batches"] for i in items_list)
-        in_stock_count = len([i for i in items_list if i["current_stock_total_kg"] > 0])
         
         return {
             "filters": {
@@ -1939,17 +2003,87 @@ async def get_stock_in_hand(
                 "search": search
             },
             "summary": {
-                "total_stock_kg": grand_current_stock_total_kg,
-                "total_2ply_kg": grand_current_stock_2ply_kg,
-                "total_3ply_kg": grand_current_stock_3ply_kg,
-                "total_completed_springs_2ply": grand_completed_springs_2ply,
-                "total_completed_springs_3ply": grand_completed_springs_3ply,
-                "total_pending_kg": grand_pending_total_kg,
+                "total_springs": grand_total_springs,
+                "total_springs_2ply": grand_springs_2ply,
+                "total_springs_3ply": grand_springs_3ply,
+                "total_stock_kg": round(sum(i["current_stock_total_kg"] for i in items_list), 2),
+                "total_2ply_kg": round(sum(i["current_stock_2ply_kg"] for i in items_list), 2),
+                "total_3ply_kg": round(sum(i["current_stock_3ply_kg"] for i in items_list), 2),
                 "total_pending_batches": grand_pending_batches,
                 "total_shades_count": len(items_list),
-                "in_stock_shades_count": in_stock_count,
+                "in_stock_shades_count": in_stock_shades_count,
             },
             "shades": items_list
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@api_router.post("/stock-in-hand/adjust-springs")
+async def adjust_springs(req: AdjustSpringsRequest):
+    """
+    Direct 1-click or keyboard adjustment of spring quantity for a shade.
+    Supports +1 / -1 increment, direct typing value, or setting specific springs.
+    """
+    try:
+        clean_sn = str(req.shade_number).strip().lstrip("#")
+        sn_key = clean_sn.lower()
+        
+        existing = await db.shade_spring_stocks.find_one({"shade_number": clean_sn})
+        if not existing:
+            existing = await db.shade_spring_stocks.find_one({"shade_number": sn_key})
+            
+        cur_2p = safe_int(existing.get("springs_2ply", 0)) if existing else 0
+        cur_3p = safe_int(existing.get("springs_3ply", 0)) if existing else 0
+        
+        if req.action == "increment":
+            step = abs(safe_int(req.delta, 1))
+            if req.ply_type == "2ply":
+                cur_2p += step
+            elif req.ply_type == "3ply":
+                cur_3p += step
+            elif req.ply_type == "both":
+                cur_2p += step
+                cur_3p += step
+        elif req.action == "decrement":
+            step = abs(safe_int(req.delta, 1))
+            if req.ply_type == "2ply":
+                cur_2p = max(0, cur_2p - step)
+            elif req.ply_type == "3ply":
+                cur_3p = max(0, cur_3p - step)
+            elif req.ply_type == "both":
+                cur_2p = max(0, cur_2p - step)
+                cur_3p = max(0, cur_3p - step)
+        elif req.action == "set":
+            val = max(0, safe_int(req.value, 0))
+            if req.ply_type == "2ply":
+                cur_2p = val
+            elif req.ply_type == "3ply":
+                cur_3p = val
+                
+        if req.springs_2ply is not None:
+            cur_2p = max(0, safe_int(req.springs_2ply))
+        if req.springs_3ply is not None:
+            cur_3p = max(0, safe_int(req.springs_3ply))
+            
+        await db.shade_spring_stocks.update_one(
+            {"shade_number": clean_sn},
+            {"$set": {
+                "shade_number": clean_sn,
+                "springs_2ply": cur_2p,
+                "springs_3ply": cur_3p,
+                "updated_at": datetime.utcnow()
+            }},
+            upsert=True
+        )
+        
+        return {
+            "success": True,
+            "shade_number": clean_sn,
+            "springs_2ply": cur_2p,
+            "springs_3ply": cur_3p,
+            "total_springs": cur_2p + cur_3p,
+            "message": f"Updated springs for Shade #{clean_sn}"
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

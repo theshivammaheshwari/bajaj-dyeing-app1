@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -48,14 +48,21 @@ interface ManualEntryItem {
 
 interface ShadeStockItem {
   shade_number: string;
+  display_number?: string;
   shade_id: string | null;
   program_number: string;
   rc: string;
+  // Springs metrics (Primary for factory floor)
+  springs_2ply: number;
+  springs_3ply: number;
+  total_springs: number;
+  is_spring_custom?: boolean;
+  completed_springs_2ply: number;
+  completed_springs_3ply: number;
+  // Weight metrics
   completed_2ply_kg: number;
   completed_3ply_kg: number;
   completed_total_kg: number;
-  completed_springs_2ply: number;
-  completed_springs_3ply: number;
   completed_batches: number;
   manual_2ply_kg: number;
   manual_3ply_kg: number;
@@ -82,12 +89,12 @@ interface StockInHandResponse {
     search: string | null;
   };
   summary: {
+    total_springs: number;
+    total_springs_2ply: number;
+    total_springs_3ply: number;
     total_stock_kg: number;
     total_2ply_kg: number;
     total_3ply_kg: number;
-    total_completed_springs_2ply: number;
-    total_completed_springs_3ply: number;
-    total_pending_kg: number;
     total_pending_batches: number;
     total_shades_count: number;
     in_stock_shades_count: number;
@@ -102,22 +109,24 @@ export default function StockInHandScreen() {
   const [loading, setLoading] = useState(true);
   const [stockData, setStockData] = useState<StockInHandResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterTab, setFilterTab] = useState<'all' | 'in_stock' | 'pending' | '2ply' | '3ply'>('all');
-  
-  // Date filter
-  const [dateFilterMode, setDateFilterMode] = useState<'all' | 'today' | 'custom'>('all');
-  const [customDate, setCustomDate] = useState('');
+  const [filterTab, setFilterTab] = useState<'all' | 'in_stock' | '2ply' | '3ply' | 'pending'>('all');
 
-  // Expand shade details state
-  const [expandedShades, setExpandedShades] = useState<Record<string, boolean>>({});
+  // Keyboard navigation & fast edit state
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number>(0);
+  const [selectedPly, setSelectedPly] = useState<'2ply' | '3ply'>('2ply');
+  const [updatingShade, setUpdatingShade] = useState<string | null>(null);
+  const [showKeysGuide, setShowKeysGuide] = useState(false);
+
+  // Print Modal Options
+  const [printModalVisible, setPrintModalVisible] = useState(false);
+  const [printPlyOption, setPrintPlyOption] = useState<'both' | '2ply' | '3ply'>('both');
+  const [printScope, setPrintScope] = useState<'all_sequence' | 'in_stock_only'>('all_sequence');
 
   // Manual Stock Modal State
   const [manualModalVisible, setManualModalVisible] = useState(false);
   const [manualShade, setManualShade] = useState('');
-  const [manualPly2, setManualPly2] = useState('');
-  const [manualPly3, setManualPly3] = useState('');
-  const [manualDate, setManualDate] = useState(new Date().toISOString().split('T')[0]);
-  const [manualNotes, setManualNotes] = useState('');
+  const [manualSprings2, setManualSprings2] = useState('');
+  const [manualSprings3, setManualSprings3] = useState('');
   const [submittingManual, setSubmittingManual] = useState(false);
 
   // Edit Pending Task Modal State
@@ -126,28 +135,20 @@ export default function StockInHandScreen() {
   const [taskShadeNumber, setTaskShadeNumber] = useState('');
   const [taskSprings2Ply, setTaskSprings2Ply] = useState('');
   const [taskSprings3Ply, setTaskSprings3Ply] = useState('');
-  const [taskPly2Weight, setTaskPly2Weight] = useState('');
-  const [taskPly3Weight, setTaskPly3Weight] = useState('');
   const [taskTotalWeight, setTaskTotalWeight] = useState('');
   const [savingTask, setSavingTask] = useState(false);
 
+  const searchInputRef = useRef<TextInput | null>(null);
+  const rowRefs = useRef<{ [key: number]: any }>({});
+
   useEffect(() => {
     fetchStockData();
-  }, [dateFilterMode, customDate]);
+  }, []);
 
   const fetchStockData = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams();
-      
-      if (dateFilterMode === 'today') {
-        const todayStr = new Date().toISOString().split('T')[0];
-        params.append('as_of_date', todayStr);
-      } else if (dateFilterMode === 'custom' && customDate.trim()) {
-        params.append('as_of_date', customDate.trim());
-      }
-      
-      const url = `${EXPO_PUBLIC_BACKEND_URL}/api/stock-in-hand?${params.toString()}`;
+      const url = `${EXPO_PUBLIC_BACKEND_URL}/api/stock-in-hand`;
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
@@ -173,87 +174,225 @@ export default function StockInHandScreen() {
     }
   };
 
-  const toggleExpand = (shadeNumber: string) => {
-    setExpandedShades(prev => ({
-      ...prev,
-      [shadeNumber]: !prev[shadeNumber],
-    }));
-  };
-
-  // Open Manual Entry Modal
-  const openManualModal = (prefillShade = '') => {
-    setManualShade(prefillShade);
-    setManualPly2('');
-    setManualPly3('');
-    setManualDate(new Date().toISOString().split('T')[0]);
-    setManualNotes('');
-    setManualModalVisible(true);
-  };
-
-  // Submit Manual Entry
-  const handleSaveManualStock = async () => {
-    if (!manualShade.trim()) {
-      showAlert('Missing Shade', 'Please enter a shade number');
-      return;
+  // Filtered Shades List in Natural Sequence
+  const filteredShades: ShadeStockItem[] = (stockData?.shades || []).filter(item => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase().replace('#', '');
+      const sn = item.shade_number.toLowerCase();
+      const dn = (item.display_number || '').toLowerCase();
+      if (!sn.includes(q) && !dn.includes(q)) return false;
     }
-    const p2 = parseFloat(manualPly2 || '0');
-    const p3 = parseFloat(manualPly3 || '0');
-    if (isNaN(p2) || isNaN(p3) || (p2 === 0 && p3 === 0)) {
-      showAlert('Invalid Quantity', 'Please enter 2-PLY kg and/or 3-PLY kg');
-      return;
+    if (filterTab === 'in_stock') return item.total_springs > 0;
+    if (filterTab === '2ply') return item.springs_2ply > 0;
+    if (filterTab === '3ply') return item.springs_3ply > 0;
+    if (filterTab === 'pending') return item.pending_batches > 0;
+    return true;
+  });
+
+  // Clamp selectedRowIndex within bounds
+  useEffect(() => {
+    if (filteredShades.length > 0 && selectedRowIndex >= filteredShades.length) {
+      setSelectedRowIndex(filteredShades.length - 1);
+    }
+  }, [filteredShades.length]);
+
+  // Adjust Spring Quantity (+1 / -1 / set)
+  const adjustSpringQuantity = async (
+    shadeNumber: string,
+    plyType: '2ply' | '3ply',
+    action: 'increment' | 'decrement' | 'set',
+    value?: number
+  ) => {
+    if (!stockData) return;
+
+    // Optimistic UI Update for instant tactile feedback
+    const oldShades = [...stockData.shades];
+    const targetIdx = oldShades.findIndex(s => s.shade_number === shadeNumber);
+    if (targetIdx === -1) return;
+
+    const currentShade = { ...oldShades[targetIdx] };
+    let new2p = currentShade.springs_2ply;
+    let new3p = currentShade.springs_3ply;
+
+    if (action === 'increment') {
+      if (plyType === '2ply') new2p += 1;
+      else new3p += 1;
+    } else if (action === 'decrement') {
+      if (plyType === '2ply') new2p = Math.max(0, new2p - 1);
+      else new3p = Math.max(0, new3p - 1);
+    } else if (action === 'set' && value !== undefined) {
+      if (plyType === '2ply') new2p = Math.max(0, value);
+      else new3p = Math.max(0, value);
     }
 
+    currentShade.springs_2ply = new2p;
+    currentShade.springs_3ply = new3p;
+    currentShade.total_springs = new2p + new3p;
+    oldShades[targetIdx] = currentShade;
+
+    // Recalculate summary totals optimistically
+    const newTotalSprings = oldShades.reduce((sum, s) => sum + s.total_springs, 0);
+    const newSprings2 = oldShades.reduce((sum, s) => sum + s.springs_2ply, 0);
+    const newSprings3 = oldShades.reduce((sum, s) => sum + s.springs_3ply, 0);
+
+    setStockData({
+      ...stockData,
+      summary: {
+        ...stockData.summary,
+        total_springs: newTotalSprings,
+        total_springs_2ply: newSprings2,
+        total_springs_3ply: newSprings3,
+        in_stock_shades_count: oldShades.filter(s => s.total_springs > 0).length,
+      },
+      shades: oldShades,
+    });
+
+    setUpdatingShade(shadeNumber);
+
+    // Call Backend API
     try {
-      setSubmittingManual(true);
       const payload = {
-        shade_number: manualShade.trim(),
-        ply2_kg: p2,
-        ply3_kg: p3,
-        date: manualDate || new Date().toISOString().split('T')[0],
-        notes: manualNotes.trim() || 'Manual stock entry',
+        shade_number: shadeNumber,
+        ply_type: plyType,
+        action: action,
+        delta: 1,
+        value: action === 'set' ? value : undefined,
       };
 
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/stock-in-hand/manual`, {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/stock-in-hand/adjust-springs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      if (res.ok) {
-        setManualModalVisible(false);
-        showAlert('Success', `Stock recorded for Shade #${manualShade}`);
-        fetchStockData();
-      } else {
-        const err = await res.json();
-        showAlert('Error', err.detail || 'Failed to save manual stock');
+      if (!res.ok) {
+        console.error('Failed to sync springs with backend');
       }
-    } catch (error) {
-      showAlert('Error', 'Network error while saving stock');
+    } catch (err) {
+      console.error('Network error during spring adjustment:', err);
     } finally {
-      setSubmittingManual(false);
+      setUpdatingShade(null);
     }
   };
 
-  // Delete Manual Entry
-  const handleDeleteManualEntry = async (entryId: string) => {
-    const confirmDelete = Platform.OS === 'web' 
-      ? window.confirm('Delete this manual stock adjustment?')
-      : true;
+  // Keyboard navigation handler ("All working from keys only")
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
 
-    if (!confirmDelete) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // If user is currently typing in an input modal or search box, don't capture navigation arrows
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+      if (e.key === '/' && !isInput) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        setPrintModalVisible(true);
+        return;
+      }
+
+      // If typing in search box, allow Escape to blur
+      if (isInput) {
+        if (e.key === 'Escape') {
+          (activeEl as HTMLElement).blur();
+        }
+        return;
+      }
+
+      if (filteredShades.length === 0) return;
+
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        setSelectedRowIndex(prev => {
+          const next = Math.min(filteredShades.length - 1, prev + 1);
+          return next;
+        });
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        setSelectedRowIndex(prev => {
+          const next = Math.max(0, prev - 1);
+          return next;
+        });
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setSelectedPly('2ply');
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setSelectedPly('3ply');
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        const activeShade = filteredShades[selectedRowIndex];
+        if (activeShade) {
+          adjustSpringQuantity(activeShade.shade_number, selectedPly, 'increment');
+        }
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        const activeShade = filteredShades[selectedRowIndex];
+        if (activeShade) {
+          adjustSpringQuantity(activeShade.shade_number, selectedPly, 'decrement');
+        }
+      } else if (e.key === 'Enter') {
+        // Move to next shade on Enter
+        e.preventDefault();
+        setSelectedRowIndex(prev => Math.min(filteredShades.length - 1, prev + 1));
+      } else if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        setPrintModalVisible(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [filteredShades, selectedRowIndex, selectedPly, stockData]);
+
+  // Handle Quick Manual Direct Set
+  const openManualDirectModal = (prefillShade = '', initial2p = 0, initial3p = 0) => {
+    setManualShade(prefillShade);
+    setManualSprings2(initial2p ? initial2p.toString() : '');
+    setManualSprings3(initial3p ? initial3p.toString() : '');
+    setManualModalVisible(true);
+  };
+
+  const handleSaveDirectSprings = async () => {
+    if (!manualShade.trim()) {
+      showAlert('Missing Shade', 'Please enter a shade number');
+      return;
+    }
+    const s2 = parseInt(manualSprings2 || '0', 10);
+    const s3 = parseInt(manualSprings3 || '0', 10);
 
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/stock-in-hand/manual/${entryId}`, {
-        method: 'DELETE',
+      setSubmittingManual(true);
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/stock-in-hand/adjust-springs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shade_number: manualShade.trim(),
+          springs_2ply: s2,
+          springs_3ply: s3,
+          action: 'set',
+        }),
       });
+
       if (res.ok) {
-        showAlert('Deleted', 'Manual stock entry removed');
+        setManualModalVisible(false);
+        showAlert('Success', `Updated springs for Shade #${manualShade}`);
         fetchStockData();
       } else {
-        showAlert('Error', 'Could not delete entry');
+        const err = await res.json();
+        showAlert('Error', err.detail || 'Failed to save springs');
       }
     } catch (error) {
       showAlert('Error', 'Network error');
+    } finally {
+      setSubmittingManual(false);
     }
   };
 
@@ -267,8 +406,6 @@ export default function StockInHandScreen() {
     setTaskShadeNumber(task.shade_number);
     setTaskSprings2Ply(task.springs_2ply.toString());
     setTaskSprings3Ply(task.springs_3ply.toString());
-    setTaskPly2Weight(task.ply2_weight > 0 ? task.ply2_weight.toString() : '');
-    setTaskPly3Weight(task.ply3_weight > 0 ? task.ply3_weight.toString() : '');
     setTaskTotalWeight(task.weight > 0 ? task.weight.toString() : '');
     setEditTaskModalVisible(true);
   };
@@ -290,8 +427,6 @@ export default function StockInHandScreen() {
         shade_number: taskShadeNumber.trim(),
         springs_2ply: parseInt(taskSprings2Ply || '0', 10),
         springs_3ply: parseInt(taskSprings3Ply || '0', 10),
-        ply2_weight: taskPly2Weight ? parseFloat(taskPly2Weight) : undefined,
-        ply3_weight: taskPly3Weight ? parseFloat(taskPly3Weight) : undefined,
         weight: taskTotalWeight ? parseFloat(taskTotalWeight) : undefined,
       };
 
@@ -316,34 +451,232 @@ export default function StockInHandScreen() {
     }
   };
 
-  // Filtered Shades List
-  const filteredShades = (stockData?.shades || []).filter(item => {
-    // Search filter
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase().replace('#', '');
-      if (!item.shade_number.toLowerCase().includes(q)) return false;
+  // 1-PAGE PRINT SHEET GENERATOR (MATCHING REFERENCE IMAGE "SPRING QTY LIST — 001 TO 050")
+  const executeOnePagePrint = () => {
+    if (Platform.OS !== 'web') {
+      showAlert('Print Sheet', 'Please open the web portal to print this 1-page sheet.');
+      return;
     }
-    // Tab filters
-    if (filterTab === 'in_stock') return item.current_stock_total_kg > 0;
-    if (filterTab === 'pending') return item.pending_batches > 0;
-    if (filterTab === '2ply') return item.current_stock_2ply_kg > 0;
-    if (filterTab === '3ply') return item.current_stock_3ply_kg > 0;
-    return true;
-  });
 
-  const handlePrint = () => {
-    if (Platform.OS === 'web') {
-      window.print();
-    } else {
-      showAlert('Print Report', 'Please open web portal to print this stock report.');
+    setPrintModalVisible(false);
+
+    // Prepare shades for print
+    let printList = (stockData?.shades || []).slice();
+
+    if (printScope === 'in_stock_only') {
+      if (printPlyOption === '2ply') {
+        printList = printList.filter(s => s.springs_2ply > 0);
+      } else if (printPlyOption === '3ply') {
+        printList = printList.filter(s => s.springs_3ply > 0);
+      } else {
+        printList = printList.filter(s => s.total_springs > 0);
+      }
+    }
+
+    // Determine header title range
+    const firstNum = printList.length > 0 ? (printList[0].display_number || printList[0].shade_number) : '001';
+    const lastNum = printList.length > 0 ? (printList[printList.length - 1].display_number || printList[printList.length - 1].shade_number) : '050';
+    const sheetTitle = `SPRING QTY LIST — ${firstNum} TO ${lastNum}`;
+
+    // Split into 2 or 3 side-by-side columns to fit strictly on ONE single A4 page
+    const totalItems = printList.length;
+    const numColumns = totalItems > 60 ? 3 : 2;
+    const rowsPerCol = Math.ceil(totalItems / numColumns);
+
+    const columnsData: ShadeStockItem[][] = [];
+    for (let c = 0; c < numColumns; c++) {
+      const start = c * rowsPerCol;
+      const end = start + rowsPerCol;
+      columnsData.push(printList.slice(start, end));
+    }
+
+    // Totals for sheet
+    const total2p = printList.reduce((acc, s) => acc + s.springs_2ply, 0);
+    const total3p = printList.reduce((acc, s) => acc + s.springs_3ply, 0);
+    const grandTotal = total2p + total3p;
+
+    const plySubtitle =
+      printPlyOption === '2ply'
+        ? `Option: 2-PLY Only (Total: ${total2p} Springs)`
+        : printPlyOption === '3ply'
+        ? `Option: 3-PLY Only (Total: ${total3p} Springs)`
+        : `Option: Both 2-PLY & 3-PLY (2-PLY: ${total2p} | 3-PLY: ${total3p} | Total: ${grandTotal} Springs)`;
+
+    // Render table HTML per column
+    const renderColumnTable = (items: ShadeStockItem[]) => {
+      return `
+        <table class="spring-table">
+          <thead>
+            <tr>
+              <th class="th-num">NUMBER</th>
+              ${
+                printPlyOption === 'both'
+                  ? `<th class="th-qty">2-PLY</th><th class="th-qty">3-PLY</th><th class="th-qty">TOTAL</th>`
+                  : `<th class="th-qty">SPRING QTY</th>`
+              }
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(item => {
+                const num = item.display_number || item.shade_number;
+                if (printPlyOption === '2ply') {
+                  const val = item.springs_2ply > 0 ? `<strong>${item.springs_2ply}</strong>` : `<span class="blank-line">______</span>`;
+                  return `<tr><td class="td-num">${num}</td><td class="td-qty">${val}</td></tr>`;
+                } else if (printPlyOption === '3ply') {
+                  const val = item.springs_3ply > 0 ? `<strong>${item.springs_3ply}</strong>` : `<span class="blank-line">______</span>`;
+                  return `<tr><td class="td-num">${num}</td><td class="td-qty">${val}</td></tr>`;
+                } else {
+                  const v2 = item.springs_2ply > 0 ? item.springs_2ply : '-';
+                  const v3 = item.springs_3ply > 0 ? item.springs_3ply : '-';
+                  const tot = item.total_springs > 0 ? `<strong>${item.total_springs}</strong>` : `<span class="blank-line">___</span>`;
+                  return `<tr><td class="td-num">${num}</td><td class="td-qty">${v2}</td><td class="td-qty">${v3}</td><td class="td-qty bold-tot">${tot}</td></tr>`;
+                }
+              })
+              .join('')}
+          </tbody>
+        </table>
+      `;
+    };
+
+    const printHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${sheetTitle}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 8mm 10mm 6mm 10mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+      margin: 0;
+      padding: 0;
+      color: #000;
+      background: #fff;
+    }
+    .header-box {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    .title-main {
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: 1.5px;
+      margin: 0 0 4px 0;
+      text-transform: uppercase;
+    }
+    .subtitle-row {
+      font-size: 11px;
+      font-weight: 700;
+      color: #222;
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1.5px solid #000;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+    }
+    .sheet-grid {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      width: 100%;
+    }
+    .sheet-col {
+      flex: 1;
+    }
+    .spring-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11.5px;
+    }
+    .spring-table th {
+      background-color: #e5e7eb !important;
+      border: 1.5px solid #000;
+      padding: 4px 6px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-align: center;
+      font-size: 11px;
+    }
+    .spring-table td {
+      border: 1.2px solid #000;
+      padding: 3.5px 6px;
+      text-align: center;
+      height: 21px;
+      font-size: 12px;
+    }
+    .td-num {
+      font-weight: 800;
+      background: #fafafa;
+      width: 45%;
+    }
+    .td-qty {
+      font-size: 12px;
+    }
+    .bold-tot {
+      background: #f3f4f6;
+    }
+    .blank-line {
+      color: #777;
+      letter-spacing: 1px;
+    }
+    .footer-note {
+      margin-top: 8px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-weight: 700;
+      border-top: 1px solid #333;
+      padding-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header-box">
+    <h1 class="title-main">${sheetTitle}</h1>
+    <div class="subtitle-row">
+      <span>${plySubtitle}</span>
+      <span>Date: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+    </div>
+  </div>
+
+  <div class="sheet-grid">
+    ${columnsData.map(colItems => `<div class="sheet-col">${renderColumnTable(colItems)}</div>`).join('')}
+  </div>
+
+  <div class="footer-note">
+    <span>Bajaj Dyeing & Finishing • Physical Spring Count Sheet</span>
+    <span>Total Available Stock: <strong>${grandTotal} Springs</strong> across <strong>${printList.filter(s => s.total_springs > 0).length}</strong> shades</span>
+  </div>
+</body>
+</html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(printHTML);
+      printWindow.document.close();
+      setTimeout(() => {
+        printWindow.print();
+      }, 400);
     }
   };
+
+  const grandSummary = stockData?.summary;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.headerBackground} />
 
-      {/* HEADER */}
+      {/* TOP HEADER */}
       <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <View style={styles.headerLeft}>
           <TouchableOpacity
@@ -353,167 +686,129 @@ export default function StockInHandScreen() {
             <Text style={[styles.backButtonText, { color: colors.secondary }]}>← Back</Text>
           </TouchableOpacity>
           <View>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>📦 Stock in Hand</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>📦 Stock in Hand (Springs)</Text>
             <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-              Ascending Shade-wise | 2-PLY & 3-PLY Consolidated Inventory
+              Factory Floor Sequence • 2-PLY & 3-PLY Spring Counts
             </Text>
           </View>
         </View>
 
         <View style={styles.headerActions}>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
-            onPress={() => openManualModal()}
+            style={[styles.actionBtn, { backgroundColor: '#3B82F6' }]}
+            onPress={() => setShowKeysGuide(prev => !prev)}
           >
-            <Text style={styles.actionBtnText}>➕ Manual Stock</Text>
+            <Text style={styles.actionBtnText}>⌨️ Keys Guide</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: '#10B981' }]}
+            onPress={() => openManualDirectModal()}
+          >
+            <Text style={styles.actionBtnText}>➕ Manual Entry</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: '#2B6CB0' }]}
-            onPress={handlePrint}
+            onPress={() => setPrintModalVisible(true)}
           >
-            <Text style={styles.actionBtnText}>🖨️ Print</Text>
+            <Text style={styles.actionBtnText}>🖨️ 1-Page Print</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* TOP KPI CARDS */}
-        {stockData && (
+        {/* KPI CARDS (FOCUSED ON SPRINGS - ZERO KG CONFUSION) */}
+        {grandSummary && (
           <View style={styles.kpiRow}>
-            {/* Total Stock in Hand */}
+            {/* Total Springs In Hand */}
             <View style={[styles.kpiCard, { backgroundColor: '#064E3B', borderColor: '#10B981' }]}>
-              <Text style={styles.kpiLabel}>TOTAL STOCK IN HAND</Text>
+              <Text style={styles.kpiLabel}>TOTAL SPRINGS IN HAND</Text>
               <Text style={styles.kpiValue}>
-                {stockData.summary.total_stock_kg.toFixed(1)}{' '}
-                <Text style={styles.kpiUnit}>KG</Text>
+                {grandSummary.total_springs}{' '}
+                <Text style={styles.kpiUnit}>SPRINGS</Text>
               </Text>
               <Text style={styles.kpiSub}>
-                {stockData.summary.in_stock_shades_count} / {stockData.summary.total_shades_count} Shades Available
+                {grandSummary.in_stock_shades_count} / {grandSummary.total_shades_count} Shades Available
               </Text>
             </View>
 
-            {/* 2-PLY Stock */}
+            {/* 2-PLY Springs */}
             <View style={[styles.kpiCard, { backgroundColor: '#1E3A8A', borderColor: '#3B82F6' }]}>
-              <Text style={styles.kpiLabel}>2-PLY STOCK IN HAND</Text>
+              <Text style={styles.kpiLabel}>2-PLY SPRINGS READY</Text>
               <Text style={styles.kpiValue}>
-                {stockData.summary.total_2ply_kg.toFixed(1)}{' '}
-                <Text style={styles.kpiUnit}>KG</Text>
+                {grandSummary.total_springs_2ply}{' '}
+                <Text style={styles.kpiUnit}>SPRINGS</Text>
               </Text>
-              <Text style={styles.kpiSub}>
-                {stockData.summary.total_completed_springs_2ply} Springs Ready
-              </Text>
+              <Text style={styles.kpiSub}>Active for 2-PLY Dispatch</Text>
             </View>
 
-            {/* 3-PLY Stock */}
+            {/* 3-PLY Springs */}
             <View style={[styles.kpiCard, { backgroundColor: '#581C87', borderColor: '#A855F7' }]}>
-              <Text style={styles.kpiLabel}>3-PLY STOCK IN HAND</Text>
+              <Text style={styles.kpiLabel}>3-PLY SPRINGS READY</Text>
               <Text style={styles.kpiValue}>
-                {stockData.summary.total_3ply_kg.toFixed(1)}{' '}
-                <Text style={styles.kpiUnit}>KG</Text>
+                {grandSummary.total_springs_3ply}{' '}
+                <Text style={styles.kpiUnit}>SPRINGS</Text>
               </Text>
-              <Text style={styles.kpiSub}>
-                {stockData.summary.total_completed_springs_3ply} Springs Ready
-              </Text>
+              <Text style={styles.kpiSub}>Active for 3-PLY Dispatch</Text>
             </View>
 
-            {/* In-Progress / Pending */}
+            {/* In-Progress Batches */}
             <View style={[styles.kpiCard, { backgroundColor: '#78350F', borderColor: '#F59E0B' }]}>
-              <Text style={styles.kpiLabel}>IN-PROGRESS / PENDING</Text>
+              <Text style={styles.kpiLabel}>IN-PROGRESS LOTS</Text>
               <Text style={styles.kpiValue}>
-                {stockData.summary.total_pending_kg.toFixed(1)}{' '}
-                <Text style={styles.kpiUnit}>KG</Text>
+                {grandSummary.total_pending_batches}{' '}
+                <Text style={styles.kpiUnit}>LOTS</Text>
               </Text>
-              <Text style={styles.kpiSub}>
-                {stockData.summary.total_pending_batches} Lots Running (Can Change)
-              </Text>
+              <Text style={styles.kpiSub}>Change Option Available</Text>
             </View>
           </View>
         )}
 
-        {/* CONTROLS & FILTERS BAR */}
-        <View style={[styles.controlsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          {/* Date Filter Selection */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>📅 Stock Date Filter:</Text>
-            <View style={styles.filterButtonGroup}>
-              <TouchableOpacity
-                style={[
-                  styles.filterToggleBtn,
-                  dateFilterMode === 'all' && styles.filterToggleBtnActive,
-                ]}
-                onPress={() => setDateFilterMode('all')}
-              >
-                <Text
-                  style={[
-                    styles.filterToggleText,
-                    dateFilterMode === 'all' && styles.filterToggleTextActive,
-                  ]}
-                >
-                  All Time (Current)
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.filterToggleBtn,
-                  dateFilterMode === 'today' && styles.filterToggleBtnActive,
-                ]}
-                onPress={() => setDateFilterMode('today')}
-              >
-                <Text
-                  style={[
-                    styles.filterToggleText,
-                    dateFilterMode === 'today' && styles.filterToggleTextActive,
-                  ]}
-                >
-                  As of Today
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.filterToggleBtn,
-                  dateFilterMode === 'custom' && styles.filterToggleBtnActive,
-                ]}
-                onPress={() => setDateFilterMode('custom')}
-              >
-                <Text
-                  style={[
-                    styles.filterToggleText,
-                    dateFilterMode === 'custom' && styles.filterToggleTextActive,
-                  ]}
-                >
-                  Custom As of Date
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {dateFilterMode === 'custom' && (
-              <View style={styles.customDateRow}>
-                <TextInput
-                  style={[styles.dateInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  placeholder="YYYY-MM-DD (e.g. 2026-10-12)"
-                  placeholderTextColor={colors.textSecondary}
-                  value={customDate}
-                  onChangeText={setCustomDate}
-                />
-                <TouchableOpacity
-                  style={[styles.applyDateBtn, { backgroundColor: colors.primary }]}
-                  onPress={fetchStockData}
-                >
-                  <Text style={styles.applyDateText}>Apply Date</Text>
-                </TouchableOpacity>
-              </View>
-            )}
+        {/* KEYBOARD SHORTCUT HELPER BANNER */}
+        <View style={[styles.keyboardNoticeBox, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
+          <View style={styles.keyboardNoticeHeader}>
+            <Text style={styles.keyboardNoticeTitle}>
+              ⚡ 100% Keyboard Mode: Mouse ke saath Keyboard se superfast kaam karein!
+            </Text>
+            <TouchableOpacity onPress={() => setShowKeysGuide(prev => !prev)}>
+              <Text style={styles.toggleGuideText}>{showKeysGuide ? 'Hide Details ▲' : 'View Keys ▼'}</Text>
+            </TouchableOpacity>
           </View>
+          {showKeysGuide && (
+            <View style={styles.keysListGrid}>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>↑ / ↓ or Enter</Text> Move up/down between shade numbers
+              </Text>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>← / →</Text> Switch active focus between 2-PLY and 3-PLY
+              </Text>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>+ / =</Text> Quick +1 spring quantity directly
+              </Text>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>- / _</Text> Quick -1 spring quantity directly
+              </Text>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>/</Text> Focus search box instantly
+              </Text>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>P or Ctrl+P</Text> Open 1-Page Print Sheet dialog
+              </Text>
+            </View>
+          )}
+        </View>
 
-          {/* Search & Tabs */}
+        {/* CONTROLS: SEARCH & TABS */}
+        <View style={[styles.controlsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.searchAndTabsRow}>
+            {/* Search Box */}
             <View style={[styles.searchBox, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
               <Text style={styles.searchIcon}>🔍</Text>
               <TextInput
+                ref={searchInputRef}
                 style={[styles.searchInput, { color: colors.text }]}
-                placeholder="Search Shade number (e.g. 219, 10, 1)..."
+                placeholder="Search Shade (e.g. 001, 120, 219) - press '/' to search..."
                 placeholderTextColor={colors.textSecondary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -525,13 +820,14 @@ export default function StockInHandScreen() {
               )}
             </View>
 
+            {/* Filter Tabs */}
             <View style={styles.tabRow}>
               {[
-                { key: 'all', label: `All (${stockData?.shades.length || 0})` },
-                { key: 'in_stock', label: `In Stock (> 0 kg)` },
-                { key: 'pending', label: `Pending (Can Change)` },
-                { key: '2ply', label: `2-PLY Only` },
-                { key: '3ply', label: `3-PLY Only` },
+                { key: 'all', label: `All Sequence (${stockData?.shades.length || 0})` },
+                { key: 'in_stock', label: `In Stock (> 0)` },
+                { key: '2ply', label: `2-PLY Stock` },
+                { key: '3ply', label: `3-PLY Stock` },
+                { key: 'pending', label: `Pending Batches (${grandSummary?.total_pending_batches || 0})` },
               ].map(t => (
                 <TouchableOpacity
                   key={t.key}
@@ -560,7 +856,7 @@ export default function StockInHandScreen() {
           <View style={styles.centerContainer}>
             <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingLabel, { color: colors.textSecondary }]}>
-              Calculating consolidated stock in hand...
+              Loading spring inventory in sequence...
             </Text>
           </View>
         ) : filteredShades.length === 0 ? (
@@ -568,220 +864,177 @@ export default function StockInHandScreen() {
             <Text style={styles.emptyIcon}>📦</Text>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No Stock Records Found</Text>
             <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-              {searchQuery ? `No shade matching "${searchQuery}"` : 'No inventory data found for the selected filter.'}
+              {searchQuery ? `No shade matching "${searchQuery}"` : 'No inventory data found for this filter.'}
             </Text>
             <TouchableOpacity
               style={[styles.addFirstBtn, { backgroundColor: '#10B981' }]}
-              onPress={() => openManualModal()}
+              onPress={() => openManualDirectModal()}
             >
-              <Text style={styles.addFirstBtnText}>➕ Enter Manual Opening Stock</Text>
+              <Text style={styles.addFirstBtnText}>➕ Enter Opening Stock</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          /* SHADES INVENTORY LIST (NATURAL ASCENDING ORDER) */
-          <View style={styles.shadesListContainer}>
-            <View style={styles.listHeaderRow}>
-              <Text style={[styles.listHeaderTitle, { color: colors.text }]}>
-                Shade Inventory (Sorted Ascending: {filteredShades.length} Shades)
-              </Text>
-              <Text style={[styles.listHeaderNote, { color: colors.textSecondary }]}>
-                *Pending tasks can be edited/changed until completed
-              </Text>
+          /* SEQUENCE TABLE (MATCHING CLIENT'S "SPRING QTY LIST" SHEET) */
+          <View style={[styles.tableContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* TABLE HEADER */}
+            <View style={styles.tableHeaderRow}>
+              <View style={[styles.thCol, styles.colNum]}>
+                <Text style={styles.thText}>NUMBER</Text>
+              </View>
+              <View style={[styles.thCol, styles.colPly]}>
+                <Text style={[styles.thText, { color: '#1D4ED8' }]}>2-PLY SPRINGS (+ / -)</Text>
+              </View>
+              <View style={[styles.thCol, styles.colPly]}>
+                <Text style={[styles.thText, { color: '#7E22CE' }]}>3-PLY SPRINGS (+ / -)</Text>
+              </View>
+              <View style={[styles.thCol, styles.colTotal]}>
+                <Text style={styles.thText}>TOTAL SPRINGS</Text>
+              </View>
+              <View style={[styles.thCol, styles.colActions]}>
+                <Text style={styles.thText}>STATUS & ACTIONS</Text>
+              </View>
             </View>
 
+            {/* TABLE ROWS */}
             {filteredShades.map((shade, idx) => {
-              const isExpanded = !!expandedShades[shade.shade_number];
-              const hasStock = shade.current_stock_total_kg > 0;
+              const isSelectedRow = selectedRowIndex === idx;
+              const hasStock = shade.total_springs > 0;
               const hasPending = shade.pending_batches > 0;
+              const displayNum = shade.display_number || shade.shade_number;
 
               return (
                 <View
                   key={shade.shade_number}
+                  ref={el => {
+                    rowRefs.current[idx] = el;
+                  }}
                   style={[
-                    styles.shadeCard,
-                    { backgroundColor: colors.card, borderColor: hasStock ? '#10B98150' : colors.border },
+                    styles.tableRow,
+                    { borderBottomColor: colors.border },
+                    isSelectedRow && styles.tableRowSelected,
+                    hasStock && !isSelectedRow && styles.tableRowHasStock,
                   ]}
                 >
-                  {/* CARD TOP BAR */}
-                  <View style={styles.shadeCardHeader}>
-                    <View style={styles.shadeBadgeGroup}>
-                      <View style={[styles.shadeNumBadge, { backgroundColor: colors.primary }]}>
-                        <Text style={styles.shadeNumText}>#{shade.shade_number}</Text>
-                      </View>
-                      <View style={[styles.progBadge, { backgroundColor: colors.secondary + '20' }]}>
-                        <Text style={[styles.progText, { color: colors.secondary }]}>
-                          {shade.program_number} {shade.rc === 'Yes' ? '• RC' : ''}
-                        </Text>
-                      </View>
-                      {hasPending && (
-                        <View style={styles.pendingBadge}>
-                          <Text style={styles.pendingBadgeText}>
-                            ⏳ {shade.pending_batches} Batch In-Progress (Can Change)
-                          </Text>
-                        </View>
-                      )}
+                  {/* NUMBER COLUMN (001, 002, 003...) */}
+                  <TouchableOpacity
+                    style={[styles.tdCol, styles.colNum]}
+                    onPress={() => setSelectedRowIndex(idx)}
+                  >
+                    <View style={styles.numberBadge}>
+                      <Text style={styles.numberText}>{displayNum}</Text>
                     </View>
+                    <Text style={[styles.subProgramText, { color: colors.textSecondary }]}>
+                      {shade.program_number}
+                    </Text>
+                  </TouchableOpacity>
 
-                    {/* Stock Highlighting */}
-                    <View style={styles.shadeTotalStockGroup}>
-                      <Text style={[styles.stockValueTotal, { color: hasStock ? '#10B981' : colors.textSecondary }]}>
-                        {shade.current_stock_total_kg.toFixed(1)} <Text style={styles.stockUnit}>KG</Text>
+                  {/* 2-PLY SPRINGS COLUMN WITH (+ -) BUTTONS */}
+                  <View
+                    style={[
+                      styles.tdCol,
+                      styles.colPly,
+                      isSelectedRow && selectedPly === '2ply' && styles.activeCellHighlight,
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={[styles.stepperBtn, styles.btnMinus]}
+                      onPress={() => adjustSpringQuantity(shade.shade_number, '2ply', 'decrement')}
+                    >
+                      <Text style={styles.stepperBtnText}>−</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.qtyDisplayBox}
+                      onPress={() => {
+                        setSelectedRowIndex(idx);
+                        setSelectedPly('2ply');
+                        openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                      }}
+                    >
+                      <Text style={[styles.qtyNumberText, { color: '#1E40AF' }]}>
+                        {shade.springs_2ply}
                       </Text>
-                      <Text style={[styles.stockLabelTotal, { color: colors.textSecondary }]}>
-                        Total Stock in Hand
+                      <Text style={styles.qtyUnitLabel}>spr</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.stepperBtn, styles.btnPlus]}
+                      onPress={() => adjustSpringQuantity(shade.shade_number, '2ply', 'increment')}
+                    >
+                      <Text style={styles.stepperBtnText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* 3-PLY SPRINGS COLUMN WITH (+ -) BUTTONS */}
+                  <View
+                    style={[
+                      styles.tdCol,
+                      styles.colPly,
+                      isSelectedRow && selectedPly === '3ply' && styles.activeCellHighlight,
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={[styles.stepperBtn, styles.btnMinus]}
+                      onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'decrement')}
+                    >
+                      <Text style={styles.stepperBtnText}>−</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.qtyDisplayBox}
+                      onPress={() => {
+                        setSelectedRowIndex(idx);
+                        setSelectedPly('3ply');
+                        openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                      }}
+                    >
+                      <Text style={[styles.qtyNumberText, { color: '#6B21A8' }]}>
+                        {shade.springs_3ply}
+                      </Text>
+                      <Text style={styles.qtyUnitLabel}>spr</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.stepperBtn, styles.btnPlus]}
+                      onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'increment')}
+                    >
+                      <Text style={styles.stepperBtnText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* TOTAL SPRINGS COLUMN */}
+                  <View style={[styles.tdCol, styles.colTotal]}>
+                    <View style={[styles.totalSpringsBadge, hasStock ? styles.badgeActive : styles.badgeZero]}>
+                      <Text style={[styles.totalSpringsText, hasStock ? styles.textActive : styles.textZero]}>
+                        {shade.total_springs}
                       </Text>
                     </View>
                   </View>
 
-                  {/* 2-PLY & 3-PLY METRICS ROW */}
-                  <View style={styles.plyMetricsRow}>
-                    {/* 2-PLY Metric */}
-                    <View style={[styles.plyMetricBox, { backgroundColor: '#1E3A8A15', borderColor: '#3B82F640' }]}>
-                      <View style={styles.plyHeader}>
-                        <Text style={[styles.plyTitle, { color: '#2563EB' }]}>🧶 2-PLY STOCK</Text>
-                        <Text style={[styles.plySprings, { color: '#2563EB' }]}>
-                          {shade.completed_springs_2ply} Springs
-                        </Text>
-                      </View>
-                      <Text style={[styles.plyBigVal, { color: '#1D4ED8' }]}>
-                        {shade.current_stock_2ply_kg.toFixed(1)} <Text style={styles.stockUnitSmall}>KG</Text>
-                      </Text>
-                      <View style={styles.plyBreakdownRow}>
-                        <Text style={[styles.plyBreakdownText, { color: colors.textSecondary }]}>
-                          Prod: {shade.completed_2ply_kg.toFixed(1)} kg
-                        </Text>
-                        {shade.manual_2ply_kg !== 0 && (
-                          <Text style={[styles.plyBreakdownText, { color: shade.manual_2ply_kg > 0 ? '#10B981' : '#EF4444' }]}>
-                            {shade.manual_2ply_kg > 0 ? `+${shade.manual_2ply_kg.toFixed(1)}` : shade.manual_2ply_kg.toFixed(1)} manual
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-
-                    {/* 3-PLY Metric */}
-                    <View style={[styles.plyMetricBox, { backgroundColor: '#581C8715', borderColor: '#A855F740' }]}>
-                      <View style={styles.plyHeader}>
-                        <Text style={[styles.plyTitle, { color: '#9333EA' }]}>🧵 3-PLY STOCK</Text>
-                        <Text style={[styles.plySprings, { color: '#9333EA' }]}>
-                          {shade.completed_springs_3ply} Springs
-                        </Text>
-                      </View>
-                      <Text style={[styles.plyBigVal, { color: '#7E22CE' }]}>
-                        {shade.current_stock_3ply_kg.toFixed(1)} <Text style={styles.stockUnitSmall}>KG</Text>
-                      </Text>
-                      <View style={styles.plyBreakdownRow}>
-                        <Text style={[styles.plyBreakdownText, { color: colors.textSecondary }]}>
-                          Prod: {shade.completed_3ply_kg.toFixed(1)} kg
-                        </Text>
-                        {shade.manual_3ply_kg !== 0 && (
-                          <Text style={[styles.plyBreakdownText, { color: shade.manual_3ply_kg > 0 ? '#10B981' : '#EF4444' }]}>
-                            {shade.manual_3ply_kg > 0 ? `+${shade.manual_3ply_kg.toFixed(1)}` : shade.manual_3ply_kg.toFixed(1)} manual
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* PENDING BATCHES SECTION (WITH CHANGE / EDIT OPTION) */}
-                  {shade.pending_tasks.length > 0 && (
-                    <View style={styles.pendingTasksSection}>
-                      <Text style={styles.pendingSectionHeading}>
-                        ⏳ In-Progress Lots (Change option available until marked completed):
-                      </Text>
-                      {shade.pending_tasks.map((pt, pIdx) => (
-                        <View key={pt.task_id || pIdx} style={styles.pendingTaskCard}>
-                          <View style={styles.pendingTaskInfo}>
-                            <Text style={styles.pendingTaskMain}>
-                              Machine: <Text style={styles.boldText}>{pt.machine}</Text> • Date:{' '}
-                              <Text style={styles.boldText}>{pt.date}</Text>
-                            </Text>
-                            <Text style={styles.pendingTaskSub}>
-                              2P Springs: <Text style={styles.boldText}>{pt.springs_2ply}</Text> • 3P Springs:{' '}
-                              <Text style={styles.boldText}>{pt.springs_3ply}</Text> • Est Weight:{' '}
-                              <Text style={styles.boldText}>{pt.weight.toFixed(1)} kg</Text>
-                            </Text>
-                            <Text style={styles.pendingStatusText}>Status: In-Progress / Pending</Text>
-                          </View>
-
-                          {/* ACTION BUTTON: CHANGE / EDIT OPTION */}
-                          <TouchableOpacity
-                            style={styles.changeTaskBtn}
-                            onPress={() => openEditPendingTaskModal(pt)}
-                          >
-                            <Text style={styles.changeTaskBtnText}>✏️ Change / Edit Batch</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-
-                  {/* BOTTOM ACTIONS BAR */}
-                  <View style={styles.shadeCardFooter}>
-                    <View style={styles.footerInfo}>
-                      {shade.last_batch_date ? (
-                        <Text style={[styles.lastBatchText, { color: colors.textSecondary }]}>
-                          Last Batch: {shade.last_batch_date} ({shade.completed_batches} lots)
-                        </Text>
-                      ) : (
-                        <Text style={[styles.lastBatchText, { color: colors.textSecondary }]}>
-                          No completed batches yet
-                        </Text>
-                      )}
-                    </View>
-
-                    <View style={styles.footerBtns}>
+                  {/* ACTIONS / IN-PROGRESS CHANGE BUTTON */}
+                  <View style={[styles.tdCol, styles.colActions]}>
+                    {hasPending ? (
                       <TouchableOpacity
-                        style={[styles.adjustBtn, { backgroundColor: '#10B98120', borderColor: '#10B981' }]}
-                        onPress={() => openManualModal(shade.shade_number)}
+                        style={styles.changeLotBtn}
+                        onPress={() => {
+                          if (shade.pending_tasks.length > 0) {
+                            openEditPendingTaskModal(shade.pending_tasks[0]);
+                          }
+                        }}
                       >
-                        <Text style={[styles.adjustBtnText, { color: '#059669' }]}>
-                          ➕ / ➖ Adjust Stock
+                        <Text style={styles.changeLotBtnText}>
+                          ⏳ {shade.pending_batches} Lot (Change)
                         </Text>
                       </TouchableOpacity>
-
+                    ) : (
                       <TouchableOpacity
-                        style={[styles.expandBtn, { backgroundColor: colors.border + '60' }]}
-                        onPress={() => toggleExpand(shade.shade_number)}
+                        style={styles.editValuesBtn}
+                        onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply)}
                       >
-                        <Text style={[styles.expandBtnText, { color: colors.text }]}>
-                          {isExpanded ? '▲ Hide History' : '▼ View Adjustments'}
-                        </Text>
+                        <Text style={styles.editValuesBtnText}>✏️ Set Qty</Text>
                       </TouchableOpacity>
-                    </View>
+                    )}
                   </View>
-
-                  {/* EXPANDED ADJUSTMENT HISTORY */}
-                  {isExpanded && (
-                    <View style={[styles.expandedDrawer, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                      <Text style={[styles.drawerTitle, { color: colors.text }]}>
-                        Manual Stock Adjustment Log for Shade #{shade.shade_number}
-                      </Text>
-                      {shade.manual_entries.length === 0 ? (
-                        <Text style={[styles.noEntriesText, { color: colors.textSecondary }]}>
-                          No manual adjustments recorded for this shade.
-                        </Text>
-                      ) : (
-                        shade.manual_entries.map((entry) => (
-                          <View key={entry.id} style={[styles.entryRow, { borderBottomColor: colors.border }]}>
-                            <View style={styles.entryInfo}>
-                              <Text style={[styles.entryDate, { color: colors.text }]}>
-                                {entry.date} • <Text style={styles.boldText}>{entry.total_kg > 0 ? `+${entry.total_kg}` : entry.total_kg} kg</Text>
-                              </Text>
-                              <Text style={[styles.entrySub, { color: colors.textSecondary }]}>
-                                2-PLY: {entry.ply2_kg} kg | 3-PLY: {entry.ply3_kg} kg • Reason: "{entry.notes}"
-                              </Text>
-                            </View>
-                            <TouchableOpacity
-                              style={styles.deleteEntryBtn}
-                              onPress={() => handleDeleteManualEntry(entry.id)}
-                            >
-                              <Text style={styles.deleteEntryText}>🗑 Delete</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ))
-                      )}
-                    </View>
-                  )}
                 </View>
               );
             })}
@@ -789,7 +1042,113 @@ export default function StockInHandScreen() {
         )}
       </ScrollView>
 
-      {/* MODAL 1: MANUAL STOCK ENTRY */}
+      {/* MODAL 1: 1-PAGE PRINT OPTIONS (2-PLY, 3-PLY, BOTH) */}
+      <Modal
+        visible={printModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setPrintModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>🖨️ 1-Page Spring Qty Print</Text>
+              <TouchableOpacity onPress={() => setPrintModalVisible(false)}>
+                <Text style={styles.closeModalText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+              Yeh format reference photo ki tarah ek hi A4 page par side-by-side columns mein print karega.
+            </Text>
+
+            {/* Print PLY Option */}
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Select PLY to Print:</Text>
+              <View style={styles.optionRow}>
+                <TouchableOpacity
+                  style={[styles.radioCard, printPlyOption === 'both' && styles.radioCardActive]}
+                  onPress={() => setPrintPlyOption('both')}
+                >
+                  <Text style={[styles.radioText, printPlyOption === 'both' && styles.radioTextActive]}>
+                    Both (2-PLY & 3-PLY)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.radioCard, printPlyOption === '2ply' && styles.radioCardActive]}
+                  onPress={() => setPrintPlyOption('2ply')}
+                >
+                  <Text style={[styles.radioText, printPlyOption === '2ply' && styles.radioTextActive]}>
+                    2-PLY Only
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.radioCard, printPlyOption === '3ply' && styles.radioCardActive]}
+                  onPress={() => setPrintPlyOption('3ply')}
+                >
+                  <Text style={[styles.radioText, printPlyOption === '3ply' && styles.radioTextActive]}>
+                    3-PLY Only
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Print Scope */}
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Shades Scope:</Text>
+              <View style={styles.optionRow}>
+                <TouchableOpacity
+                  style={[styles.radioCard, printScope === 'all_sequence' && styles.radioCardActive]}
+                  onPress={() => setPrintScope('all_sequence')}
+                >
+                  <Text style={[styles.radioText, printScope === 'all_sequence' && styles.radioTextActive]}>
+                    All Sequence (001 to End)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.radioCard, printScope === 'in_stock_only' && styles.radioCardActive]}
+                  onPress={() => setPrintScope('in_stock_only')}
+                >
+                  <Text style={[styles.radioText, printScope === 'in_stock_only' && styles.radioTextActive]}>
+                    Only In Stock (&gt; 0)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.printPreviewSummaryBox}>
+              <Text style={styles.printSummaryText}>
+                📄 Page Layout: Multi-column side-by-side table on A4 portrait (fits completely on 1 page).
+              </Text>
+              <Text style={styles.printSummaryText}>
+                🔢 Sequence: Natural numeric order ({stockData?.shades.length || 0} shades available).
+              </Text>
+            </View>
+
+            {/* Modal Actions */}
+            <View style={styles.modalActionButtons}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, { borderColor: colors.border }]}
+                onPress={() => setPrintModalVisible(false)}
+              >
+                <Text style={[styles.cancelBtnText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.submitBtn, { backgroundColor: '#2B6CB0' }]}
+                onPress={executeOnePagePrint}
+              >
+                <Text style={styles.submitBtnText}>🖨️ Print 1-Page Now</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL 2: MANUAL / SET SPRINGS */}
       <Modal
         visible={manualModalVisible}
         transparent={true}
@@ -799,14 +1158,14 @@ export default function StockInHandScreen() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>➕ Enter Manual Current Stock</Text>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>➕ Enter Spring Stock Qty</Text>
               <TouchableOpacity onPress={() => setManualModalVisible(false)}>
                 <Text style={styles.closeModalText}>✕</Text>
               </TouchableOpacity>
             </View>
 
             <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
-              Opening physical stock enter karein ya inventory adjustment (addition/dispatch) karein.
+              Shade ki direct 2-PLY &amp; 3-PLY physical springs inventory count set karein.
             </Text>
 
             {/* Shade Input */}
@@ -814,62 +1173,38 @@ export default function StockInHandScreen() {
               <Text style={[styles.inputLabel, { color: colors.text }]}>Shade Number *</Text>
               <TextInput
                 style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                placeholder="e.g. 219"
+                placeholder="e.g. 001, 120, 219"
                 placeholderTextColor={colors.textSecondary}
                 value={manualShade}
                 onChangeText={setManualShade}
               />
             </View>
 
-            {/* 2-PLY and 3-PLY Weights */}
+            {/* 2-PLY and 3-PLY Springs */}
             <View style={styles.inputsRow}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>2-PLY (KG)</Text>
+                <Text style={[styles.inputLabel, { color: '#1D4ED8' }]}>2-PLY Springs</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  placeholder="0.0"
+                  placeholder="0"
                   placeholderTextColor={colors.textSecondary}
                   keyboardType="numeric"
-                  value={manualPly2}
-                  onChangeText={setManualPly2}
+                  value={manualSprings2}
+                  onChangeText={setManualSprings2}
                 />
               </View>
 
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>3-PLY (KG)</Text>
+                <Text style={[styles.inputLabel, { color: '#7E22CE' }]}>3-PLY Springs</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  placeholder="0.0"
+                  placeholder="0"
                   placeholderTextColor={colors.textSecondary}
                   keyboardType="numeric"
-                  value={manualPly3}
-                  onChangeText={setManualPly3}
+                  value={manualSprings3}
+                  onChangeText={setManualSprings3}
                 />
               </View>
-            </View>
-
-            {/* Date */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Date (YYYY-MM-DD)</Text>
-              <TextInput
-                style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textSecondary}
-                value={manualDate}
-                onChangeText={setManualDate}
-              />
-            </View>
-
-            {/* Notes */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Notes / Reason</Text>
-              <TextInput
-                style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                placeholder="e.g. Opening physical stock, godown verification"
-                placeholderTextColor={colors.textSecondary}
-                value={manualNotes}
-                onChangeText={setManualNotes}
-              />
             </View>
 
             {/* Modal Actions */}
@@ -883,13 +1218,13 @@ export default function StockInHandScreen() {
 
               <TouchableOpacity
                 style={[styles.submitBtn, { backgroundColor: '#10B981' }]}
-                onPress={handleSaveManualStock}
+                onPress={handleSaveDirectSprings}
                 disabled={submittingManual}
               >
                 {submittingManual ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.submitBtnText}>Save Stock Entry</Text>
+                  <Text style={styles.submitBtnText}>Save Springs</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -897,7 +1232,7 @@ export default function StockInHandScreen() {
         </View>
       </Modal>
 
-      {/* MODAL 2: MODIFY PENDING TASK BATCH (AVAILABLE UNTIL COMPLETED) */}
+      {/* MODAL 3: MODIFY PENDING TASK BATCH (AVAILABLE UNTIL COMPLETED) */}
       <Modal
         visible={editTaskModalVisible}
         transparent={true}
@@ -915,7 +1250,7 @@ export default function StockInHandScreen() {
 
             <View style={styles.lockNoticeBox}>
               <Text style={styles.lockNoticeText}>
-                ⚠️ Rule: Change option is available jab tak ki task complete nahi ho jaata. Ek baar complete mark hone ke baad details locked ho jayengi.
+                ⚠️ Rule: Change option available hai jab tak ki task complete nahi ho jaata. Ek baar complete mark hone ke baad locked ho jayega.
               </Text>
             </View>
 
@@ -938,7 +1273,7 @@ export default function StockInHandScreen() {
             {/* Springs 2P & 3P */}
             <View style={styles.inputsRow}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>2-PLY Springs</Text>
+                <Text style={[styles.inputLabel, { color: '#1D4ED8' }]}>2-PLY Springs</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                   keyboardType="numeric"
@@ -948,7 +1283,7 @@ export default function StockInHandScreen() {
               </View>
 
               <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>3-PLY Springs</Text>
+                <Text style={[styles.inputLabel, { color: '#7E22CE' }]}>3-PLY Springs</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                   keyboardType="numeric"
@@ -958,38 +1293,11 @@ export default function StockInHandScreen() {
               </View>
             </View>
 
-            {/* Weights */}
-            <View style={styles.inputsRow}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>2-PLY Weight (kg)</Text>
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  placeholder="Optional"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="numeric"
-                  value={taskPly2Weight}
-                  onChangeText={setTaskPly2Weight}
-                />
-              </View>
-
-              <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={[styles.inputLabel, { color: colors.text }]}>3-PLY Weight (kg)</Text>
-                <TextInput
-                  style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  placeholder="Optional"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="numeric"
-                  value={taskPly3Weight}
-                  onChangeText={setTaskPly3Weight}
-                />
-              </View>
-            </View>
-
             <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: colors.text }]}>Total Weight (kg)</Text>
+              <Text style={[styles.inputLabel, { color: colors.text }]}>Lot Weight (kg) - Optional</Text>
               <TextInput
                 style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                placeholder="Lot weight"
+                placeholder="Weight"
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="numeric"
                 value={taskTotalWeight}
@@ -1031,7 +1339,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1042,32 +1350,32 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
   },
   backButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 8,
   },
   backButtonText: {
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
   },
   headerSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 2,
   },
   headerActions: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   actionBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 8,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.15,
@@ -1077,119 +1385,101 @@ const styles = StyleSheet.create({
   actionBtnText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 12,
   },
   scrollContent: {
-    padding: 16,
+    padding: 14,
     paddingBottom: 40,
   },
   kpiRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
+    gap: 10,
+    marginBottom: 12,
   },
   kpiCard: {
     flex: 1,
-    minWidth: 160,
-    padding: 16,
-    borderRadius: 14,
+    minWidth: 150,
+    padding: 14,
+    borderRadius: 12,
     borderWidth: 1.5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
+    elevation: 2,
   },
   kpiLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: '#E5E7EB',
     letterSpacing: 0.5,
   },
   kpiValue: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginVertical: 4,
+    marginVertical: 3,
   },
   kpiUnit: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '600',
     color: '#D1D5DB',
   },
   kpiSub: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#F3F4F6',
     opacity: 0.9,
   },
-  controlsCard: {
-    padding: 16,
-    borderRadius: 14,
+  keyboardNoticeBox: {
+    borderRadius: 10,
     borderWidth: 1,
-    marginBottom: 18,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    padding: 10,
+    marginBottom: 12,
   },
-  filterSection: {
-    marginBottom: 14,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  filterButtonGroup: {
+  keyboardNoticeHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
   },
-  filterToggleBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#E5E7EB30',
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  filterToggleBtnActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#1D4ED8',
-  },
-  filterToggleText: {
+  keyboardNoticeTitle: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#4B5563',
-  },
-  filterToggleTextActive: {
-    color: '#fff',
     fontWeight: '700',
+    color: '#1E40AF',
   },
-  customDateRow: {
+  toggleGuideText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  keysListGrid: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#BFDBFE',
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 10,
-    marginTop: 10,
   },
-  dateInput: {
-    flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+  keyItem: {
+    fontSize: 11,
+    color: '#1E3A8A',
+    width: '48%',
+  },
+  keyBadge: {
+    backgroundColor: '#DBEAFE',
+    color: '#1E40AF',
+    fontWeight: 'bold',
+    paddingHorizontal: 4,
+    borderRadius: 4,
+  },
+  controlsCard: {
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    fontSize: 13,
-  },
-  applyDateBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 8,
-  },
-  applyDateText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 12,
+    marginBottom: 14,
   },
   searchAndTabsRow: {
     gap: 10,
@@ -1198,21 +1488,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1,
   },
   searchIcon: {
-    fontSize: 16,
-    marginRight: 8,
+    fontSize: 14,
+    marginRight: 6,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 13,
     padding: 0,
   },
   clearSearchText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#9CA3AF',
     paddingHorizontal: 6,
   },
@@ -1222,16 +1512,16 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   tabItem: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 6,
     backgroundColor: '#9CA3AF20',
   },
   tabItemActive: {
     backgroundColor: '#2563EB',
   },
   tabItemText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#4B5563',
   },
@@ -1245,316 +1535,220 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   loadingLabel: {
-    marginTop: 12,
-    fontSize: 14,
+    marginTop: 10,
+    fontSize: 13,
   },
   emptyCard: {
     padding: 40,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyIcon: {
-    fontSize: 48,
-    marginBottom: 12,
+    fontSize: 40,
+    marginBottom: 8,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   emptySubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     marginTop: 4,
     textAlign: 'center',
   },
   addFirstBtn: {
-    marginTop: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 8,
   },
   addFirstBtnText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
-  shadesListContainer: {
-    gap: 14,
-  },
-  listHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    marginBottom: 4,
-  },
-  listHeaderTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-  },
-  listHeaderNote: {
-    fontSize: 11,
-    fontStyle: 'italic',
-  },
-  shadeCard: {
-    borderRadius: 14,
+  // TABLE FORMAT
+  tableContainer: {
+    borderRadius: 10,
     borderWidth: 1.5,
-    padding: 16,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
-    elevation: 2,
+    overflow: 'hidden',
   },
-  shadeCardHeader: {
+  tableHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-    flexWrap: 'wrap',
-    gap: 8,
+    backgroundColor: '#E5E7EB',
+    borderBottomWidth: 2,
+    borderBottomColor: '#1F2937',
+    paddingVertical: 9,
+    paddingHorizontal: 6,
   },
-  shadeBadgeGroup: {
+  thCol: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  thText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#111827',
+    letterSpacing: 0.5,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+  },
+  tableRowSelected: {
+    backgroundColor: '#EFF6FF',
+    borderLeftWidth: 4,
+    borderLeftColor: '#2563EB',
+  },
+  tableRowHasStock: {
+    backgroundColor: '#F0FDF430',
+  },
+  colNum: {
+    width: 80,
+    alignItems: 'center',
+  },
+  colPly: {
+    flex: 2,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
   },
-  shadeNumBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+  colTotal: {
+    width: 90,
+    alignItems: 'center',
   },
-  shadeNumText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
+  colActions: {
+    width: 130,
+    alignItems: 'center',
   },
-  progBadge: {
+  tdCol: {
+    justifyContent: 'center',
+  },
+  numberBadge: {
+    backgroundColor: '#1E293B',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
-  progText: {
-    fontSize: 12,
-    fontWeight: '600',
+  numberText: {
+    color: '#fff',
+    fontWeight: '900',
+    fontSize: 15,
+    letterSpacing: 0.5,
   },
-  pendingBadge: {
+  subProgramText: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  activeCellHighlight: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 8,
+    paddingVertical: 2,
+  },
+  stepperBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
+  },
+  btnMinus: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  btnPlus: {
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+  },
+  stepperBtnText: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#1F2937',
+    lineHeight: 20,
+  },
+  qtyDisplayBox: {
+    minWidth: 50,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyNumberText: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  qtyUnitLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  totalSpringsBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    minWidth: 45,
+    alignItems: 'center',
+  },
+  badgeActive: {
+    backgroundColor: '#10B98125',
+    borderWidth: 1.5,
+    borderColor: '#10B981',
+  },
+  badgeZero: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  totalSpringsText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  textActive: {
+    color: '#047857',
+  },
+  textZero: {
+    color: '#9CA3AF',
+  },
+  changeLotBtn: {
     backgroundColor: '#FEF3C7',
     borderColor: '#F59E0B',
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 6,
   },
-  pendingBadgeText: {
+  changeLotBtnText: {
     color: '#B45309',
     fontSize: 11,
     fontWeight: '700',
   },
-  shadeTotalStockGroup: {
-    alignItems: 'flex-end',
-  },
-  stockValueTotal: {
-    fontSize: 22,
-    fontWeight: 'bold',
-  },
-  stockUnit: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  stockLabelTotal: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  plyMetricsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 12,
-    flexWrap: 'wrap',
-  },
-  plyMetricBox: {
-    flex: 1,
-    minWidth: 140,
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 10,
-  },
-  plyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  plyTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  plySprings: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  plyBigVal: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  stockUnitSmall: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  plyBreakdownRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 3,
-  },
-  plyBreakdownText: {
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  pendingTasksSection: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 12,
-  },
-  pendingSectionHeading: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#92400E',
-    marginBottom: 6,
-  },
-  pendingTaskCard: {
-    backgroundColor: '#fff',
-    borderColor: '#FCD34D',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 6,
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  pendingTaskInfo: {
-    flex: 1,
-    minWidth: 180,
-  },
-  pendingTaskMain: {
-    fontSize: 12,
-    color: '#1F2937',
-  },
-  pendingTaskSub: {
-    fontSize: 11,
-    color: '#4B5563',
-    marginTop: 2,
-  },
-  pendingStatusText: {
-    fontSize: 10,
-    color: '#D97706',
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  boldText: {
-    fontWeight: 'bold',
-  },
-  changeTaskBtn: {
-    backgroundColor: '#F59E0B',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 6,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  changeTaskBtnText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  shadeCardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB50',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  footerInfo: {},
-  lastBatchText: {
-    fontSize: 11,
-  },
-  footerBtns: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  adjustBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  adjustBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  expandBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  expandBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  expandedDrawer: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  drawerTitle: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  noEntriesText: {
-    fontSize: 11,
-    fontStyle: 'italic',
-  },
-  entryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-  },
-  entryInfo: {
-    flex: 1,
-  },
-  entryDate: {
-    fontSize: 12,
-  },
-  entrySub: {
-    fontSize: 10,
-    marginTop: 2,
-  },
-  deleteEntryBtn: {
+  editValuesBtn: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#EF444420',
-    borderRadius: 4,
+    paddingVertical: 5,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 6,
   },
-  deleteEntryText: {
-    color: '#EF4444',
-    fontSize: 10,
-    fontWeight: '700',
+  editValuesBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
   },
   // MODALS
   modalOverlay: {
@@ -1567,12 +1761,12 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 480,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
-    padding: 20,
+    padding: 18,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowRadius: 8,
     elevation: 8,
   },
   modalHeader: {
@@ -1582,7 +1776,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 'bold',
   },
   closeModalText: {
@@ -1592,26 +1786,47 @@ const styles = StyleSheet.create({
   },
   modalSubtitle: {
     fontSize: 12,
-    marginBottom: 14,
-  },
-  modalTaskDetails: {
-    fontSize: 12,
     marginBottom: 12,
-    fontWeight: '600',
   },
-  lockNoticeBox: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#F59E0B',
+  optionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  radioCard: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#F9FAFB',
+  },
+  radioCardActive: {
+    borderColor: '#2563EB',
+    backgroundColor: '#EFF6FF',
+  },
+  radioText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  radioTextActive: {
+    color: '#1D4ED8',
+    fontWeight: '800',
+  },
+  printPreviewSummaryBox: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
     borderWidth: 1,
     borderRadius: 8,
-    padding: 8,
-    marginBottom: 12,
+    padding: 10,
+    marginTop: 8,
+    gap: 4,
   },
-  lockNoticeText: {
-    color: '#92400E',
+  printSummaryText: {
     fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '600',
+    color: '#334155',
+    fontWeight: '500',
   },
   inputGroup: {
     marginBottom: 12,
@@ -1635,21 +1850,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 10,
-    marginTop: 16,
+    marginTop: 14,
   },
   cancelBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 8,
     borderWidth: 1,
   },
   cancelBtnText: {
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 12,
   },
   submitBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1657,6 +1872,25 @@ const styles = StyleSheet.create({
   submitBtnText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 13,
+    fontSize: 12,
+  },
+  lockNoticeBox: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 10,
+  },
+  lockNoticeText: {
+    color: '#92400E',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+  },
+  modalTaskDetails: {
+    fontSize: 12,
+    marginBottom: 10,
+    fontWeight: '600',
   },
 });
