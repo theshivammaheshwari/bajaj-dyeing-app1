@@ -352,6 +352,23 @@ export default function StockInHandScreen() {
     };
   }, [filteredShades, selectedRowIndex, selectedPly, stockData]);
 
+  // Auto-scroll webpage so active row stays smoothly centered and visible when navigating with Arrow keys
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`stock-row-${selectedRowIndex}`);
+        if (el) {
+          el.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'nearest',
+          });
+        }
+      }, 30);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedRowIndex]);
+
   // Handle Quick Manual Direct Set
   const openManualDirectModal = (prefillShade = '', initial2p = 0, initial3p = 0) => {
     setManualShade(prefillShade);
@@ -905,6 +922,8 @@ export default function StockInHandScreen() {
               return (
                 <View
                   key={shade.shade_number}
+                  nativeID={`stock-row-${idx}`}
+                  {...({ id: `stock-row-${idx}` } as any)}
                   ref={el => {
                     rowRefs.current[idx] = el;
                   }}
@@ -920,10 +939,12 @@ export default function StockInHandScreen() {
                     style={[styles.tdCol, styles.colNum]}
                     onPress={() => setSelectedRowIndex(idx)}
                   >
-                    <View style={styles.numberBadge}>
-                      <Text style={styles.numberText}>{displayNum}</Text>
+                    <View style={[styles.numberBadge, isSelectedRow && styles.numberBadgeSelected]}>
+                      <Text style={[styles.numberText, isSelectedRow && styles.numberTextSelected]}>
+                        {isSelectedRow ? `👉 ${displayNum}` : displayNum}
+                      </Text>
                     </View>
-                    <Text style={[styles.subProgramText, { color: colors.textSecondary }]}>
+                    <Text style={[styles.subProgramText, { color: isSelectedRow ? '#1E40AF' : colors.textSecondary }]}>
                       {shade.program_number}
                     </Text>
                   </TouchableOpacity>
@@ -1041,6 +1062,79 @@ export default function StockInHandScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* FLOATING STICKY ACTIVE ROW INDICATOR (Always visible so user knows current active shade number) */}
+      {filteredShades.length > 0 && filteredShades[selectedRowIndex] && (
+        <View style={[styles.floatingActiveBar, { backgroundColor: colors.card, borderColor: '#2563EB' }]}>
+          <View style={styles.floatingLeft}>
+            <View style={styles.floatingActiveTag}>
+              <Text style={styles.floatingActiveTagText}>ACTIVE</Text>
+            </View>
+            <Text style={[styles.floatingShadeNum, { color: colors.text }]}>
+              #{filteredShades[selectedRowIndex].display_number || filteredShades[selectedRowIndex].shade_number}
+            </Text>
+            <Text style={[styles.floatingRowIdx, { color: colors.textSecondary }]}>
+              ({selectedRowIndex + 1}/{filteredShades.length})
+            </Text>
+          </View>
+
+          <View style={styles.floatingCenter}>
+            <TouchableOpacity
+              style={[
+                styles.floatingPlyToggle,
+                selectedPly === '2ply' && styles.floatingPlyToggleActive2P,
+              ]}
+              onPress={() => setSelectedPly('2ply')}
+            >
+              <Text style={[styles.floatingPlyToggleText, selectedPly === '2ply' && styles.floatingPlyToggleTextActive]}>
+                2-PLY: {filteredShades[selectedRowIndex].springs_2ply} spr
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.floatingPlyToggle,
+                selectedPly === '3ply' && styles.floatingPlyToggleActive3P,
+              ]}
+              onPress={() => setSelectedPly('3ply')}
+            >
+              <Text style={[styles.floatingPlyToggleText, selectedPly === '3ply' && styles.floatingPlyToggleTextActive]}>
+                3-PLY: {filteredShades[selectedRowIndex].springs_3ply} spr
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.floatingRight}>
+            <TouchableOpacity
+              style={[styles.floatingActionBtn, styles.btnMinus]}
+              onPress={() => adjustSpringQuantity(filteredShades[selectedRowIndex].shade_number, selectedPly, 'decrement')}
+            >
+              <Text style={styles.floatingActionBtnText}>−</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.floatingActionBtn, styles.btnPlus]}
+              onPress={() => adjustSpringQuantity(filteredShades[selectedRowIndex].shade_number, selectedPly, 'increment')}
+            >
+              <Text style={styles.floatingActionBtnText}>+</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.floatingNavBtn}
+              onPress={() => setSelectedRowIndex(prev => Math.max(0, prev - 1))}
+            >
+              <Text style={styles.floatingNavBtnText}>▲</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.floatingNavBtn}
+              onPress={() => setSelectedRowIndex(prev => Math.min(filteredShades.length - 1, prev + 1))}
+            >
+              <Text style={styles.floatingNavBtnText}>▼</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* MODAL 1: 1-PAGE PRINT OPTIONS (2-PLY, 3-PLY, BOTH) */}
       <Modal
@@ -1389,7 +1483,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 14,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
   kpiRow: {
     flexDirection: 'row',
@@ -1601,9 +1695,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tableRowSelected: {
-    backgroundColor: '#EFF6FF',
-    borderLeftWidth: 4,
+    backgroundColor: '#DBEAFE',
+    borderLeftWidth: 6,
     borderLeftColor: '#2563EB',
+    borderRightWidth: 4,
+    borderRightColor: '#2563EB',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   tableRowHasStock: {
     backgroundColor: '#F0FDF430',
@@ -1636,8 +1737,18 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
+  numberBadgeSelected: {
+    backgroundColor: '#2563EB',
+    transform: [{ scale: 1.05 }],
+  },
   numberText: {
     color: '#fff',
+    fontWeight: '900',
+    fontSize: 15,
+    letterSpacing: 0.5,
+  },
+  numberTextSelected: {
+    color: '#FFFFFF',
     fontWeight: '900',
     fontSize: 15,
     letterSpacing: 0.5,
@@ -1892,5 +2003,110 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 10,
     fontWeight: '600',
+  },
+  // FLOATING STICKY ACTIVE BAR
+  floatingActiveBar: {
+    position: 'absolute',
+    bottom: 16,
+    left: '50%',
+    transform: [{ translateX: -230 }],
+    width: 460,
+    maxWidth: '94%',
+    borderRadius: 30,
+    borderWidth: 2,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 999,
+  },
+  floatingLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  floatingActiveTag: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  floatingActiveTagText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  floatingShadeNum: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  floatingRowIdx: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  floatingCenter: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  floatingPlyToggle: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  floatingPlyToggleActive2P: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#3B82F6',
+  },
+  floatingPlyToggleActive3P: {
+    backgroundColor: '#F3E8FF',
+    borderColor: '#A855F7',
+  },
+  floatingPlyToggleText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#4B5563',
+  },
+  floatingPlyToggleTextActive: {
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  floatingRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  floatingActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingActionBtnText: {
+    fontSize: 16,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  floatingNavBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingNavBtnText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#374151',
   },
 });
