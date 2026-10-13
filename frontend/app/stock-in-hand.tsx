@@ -275,14 +275,53 @@ export default function StockInHandScreen() {
     }
   };
 
+  // Safe Back / Escape navigation to dashboard
+  const handleBack = () => {
+    try {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/');
+      }
+    } catch {
+      router.replace('/');
+    }
+  };
+
   // Keyboard navigation handler ("All working from keys only")
   useEffect(() => {
     if (Platform.OS !== 'web') return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // If user is currently typing in an input modal or search box, don't capture navigation arrows
       const activeEl = document.activeElement;
       const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+      // ESCAPE KEY: Close modal if open, blur input if typing, or navigate back to dashboard
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (printModalVisible) {
+          setPrintModalVisible(false);
+          return;
+        }
+        if (manualModalVisible) {
+          setManualModalVisible(false);
+          return;
+        }
+        if (editTaskModalVisible) {
+          setEditTaskModalVisible(false);
+          return;
+        }
+        if (showKeysGuide) {
+          setShowKeysGuide(false);
+          return;
+        }
+        if (isInput) {
+          (activeEl as HTMLElement).blur();
+          return;
+        }
+        handleBack();
+        return;
+      }
 
       if (e.key === '/' && !isInput) {
         e.preventDefault();
@@ -293,14 +332,6 @@ export default function StockInHandScreen() {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault();
         setPrintModalVisible(true);
-        return;
-      }
-
-      // If typing in search box, allow Escape to blur
-      if (isInput) {
-        if (e.key === 'Escape') {
-          (activeEl as HTMLElement).blur();
-        }
         return;
       }
 
@@ -698,9 +729,9 @@ export default function StockInHandScreen() {
         <View style={styles.headerLeft}>
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.secondary + '20' }]}
-            onPress={() => router.back()}
+            onPress={handleBack}
           >
-            <Text style={[styles.backButtonText, { color: colors.secondary }]}>← Back</Text>
+            <Text style={[styles.backButtonText, { color: colors.secondary }]}>← Esc</Text>
           </TouchableOpacity>
           <View>
             <Text style={[styles.headerTitle, { color: colors.text }]}>📦 Stock in Hand (Springs)</Text>
@@ -811,6 +842,9 @@ export default function StockInHandScreen() {
               </Text>
               <Text style={styles.keyItem}>
                 <Text style={styles.keyBadge}>P or Ctrl+P</Text> Open 1-Page Print Sheet dialog
+              </Text>
+              <Text style={styles.keyItem}>
+                <Text style={styles.keyBadge}>Esc</Text> Go back to Dashboard / Close
               </Text>
             </View>
           )}
