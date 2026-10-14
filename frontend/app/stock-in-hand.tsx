@@ -12,6 +12,7 @@ import {
   Alert,
   TextInput,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { getBackendBaseUrl } from '../lib/api-base';
@@ -105,6 +106,8 @@ interface StockInHandResponse {
 export default function StockInHandScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { width: windowWidth } = useWindowDimensions();
+  const isMobile = windowWidth < 720;
 
   const [loading, setLoading] = useState(true);
   const [stockData, setStockData] = useState<StockInHandResponse | null>(null);
@@ -924,29 +927,9 @@ export default function StockInHandScreen() {
               <Text style={styles.addFirstBtnText}>➕ Enter Opening Stock</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          /* SEQUENCE TABLE (MATCHING CLIENT'S "SPRING QTY LIST" SHEET) */
-          <View style={[styles.tableContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            {/* TABLE HEADER */}
-            <View style={styles.tableHeaderRow}>
-              <View style={[styles.thCol, styles.colNum]}>
-                <Text style={styles.thText}>NUMBER</Text>
-              </View>
-              <View style={[styles.thCol, styles.colPly]}>
-                <Text style={[styles.thText, { color: '#1D4ED8' }]}>2-PLY SPRINGS (+ / -)</Text>
-              </View>
-              <View style={[styles.thCol, styles.colPly]}>
-                <Text style={[styles.thText, { color: '#7E22CE' }]}>3-PLY SPRINGS (+ / -)</Text>
-              </View>
-              <View style={[styles.thCol, styles.colTotal]}>
-                <Text style={styles.thText}>TOTAL SPRINGS</Text>
-              </View>
-              <View style={[styles.thCol, styles.colActions]}>
-                <Text style={styles.thText}>STATUS & ACTIONS</Text>
-              </View>
-            </View>
-
-            {/* TABLE ROWS */}
+        ) : isMobile ? (
+          /* MOBILE ADAPTIVE CARDS (ZERO OVERLAPPING ON PHONES) */
+          <View style={styles.mobileCardsContainer}>
             {filteredShades.map((shade, idx) => {
               const isSelectedRow = selectedRowIndex === idx;
               const hasStock = shade.total_springs > 0;
@@ -962,138 +945,337 @@ export default function StockInHandScreen() {
                     rowRefs.current[idx] = el;
                   }}
                   style={[
-                    styles.tableRow,
-                    { borderBottomColor: colors.border },
-                    isSelectedRow && styles.tableRowSelected,
-                    hasStock && !isSelectedRow && styles.tableRowHasStock,
+                    styles.mobileCard,
+                    { backgroundColor: colors.card, borderColor: isSelectedRow ? '#2563EB' : colors.border },
+                    isSelectedRow && styles.mobileCardSelected,
+                    hasStock && !isSelectedRow && styles.mobileCardHasStock,
                   ]}
                 >
-                  {/* NUMBER COLUMN (001, 002, 003...) */}
-                  <TouchableOpacity
-                    style={[styles.tdCol, styles.colNum]}
-                    onPress={() => setSelectedRowIndex(idx)}
-                  >
-                    <View style={[styles.numberBadge, isSelectedRow && styles.numberBadgeSelected]}>
-                      <Text style={[styles.numberText, isSelectedRow && styles.numberTextSelected]}>
-                        {isSelectedRow ? `👉 ${displayNum}` : displayNum}
-                      </Text>
-                    </View>
-                    <Text style={[styles.subProgramText, { color: isSelectedRow ? '#1E40AF' : colors.textSecondary }]}>
-                      {shade.program_number}
-                    </Text>
-                  </TouchableOpacity>
-
-                  {/* 2-PLY SPRINGS COLUMN WITH (+ -) BUTTONS */}
-                  <View
-                    style={[
-                      styles.tdCol,
-                      styles.colPly,
-                      isSelectedRow && selectedPly === '2ply' && styles.activeCellHighlight,
-                    ]}
-                  >
+                  {/* CARD TOP ROW: SHADE NUMBER, PROGRAM, TOTAL SPRINGS, ACTION */}
+                  <View style={styles.mobileCardTopRow}>
                     <TouchableOpacity
-                      style={[styles.stepperBtn, styles.btnMinus]}
-                      onPress={() => adjustSpringQuantity(shade.shade_number, '2ply', 'decrement')}
+                      style={styles.mobileNumGroup}
+                      onPress={() => setSelectedRowIndex(idx)}
                     >
-                      <Text style={styles.stepperBtnText}>−</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.qtyDisplayBox}
-                      onPress={() => {
-                        setSelectedRowIndex(idx);
-                        setSelectedPly('2ply');
-                        openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
-                      }}
-                    >
-                      <Text style={[styles.qtyNumberText, { color: '#1E40AF' }]}>
-                        {shade.springs_2ply}
-                      </Text>
-                      <Text style={styles.qtyUnitLabel}>spr</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.stepperBtn, styles.btnPlus]}
-                      onPress={() => adjustSpringQuantity(shade.shade_number, '2ply', 'increment')}
-                    >
-                      <Text style={styles.stepperBtnText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* 3-PLY SPRINGS COLUMN WITH (+ -) BUTTONS */}
-                  <View
-                    style={[
-                      styles.tdCol,
-                      styles.colPly,
-                      isSelectedRow && selectedPly === '3ply' && styles.activeCellHighlight,
-                    ]}
-                  >
-                    <TouchableOpacity
-                      style={[styles.stepperBtn, styles.btnMinus]}
-                      onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'decrement')}
-                    >
-                      <Text style={styles.stepperBtnText}>−</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.qtyDisplayBox}
-                      onPress={() => {
-                        setSelectedRowIndex(idx);
-                        setSelectedPly('3ply');
-                        openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
-                      }}
-                    >
-                      <Text style={[styles.qtyNumberText, { color: '#6B21A8' }]}>
-                        {shade.springs_3ply}
-                      </Text>
-                      <Text style={styles.qtyUnitLabel}>spr</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.stepperBtn, styles.btnPlus]}
-                      onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'increment')}
-                    >
-                      <Text style={styles.stepperBtnText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* TOTAL SPRINGS COLUMN */}
-                  <View style={[styles.tdCol, styles.colTotal]}>
-                    <View style={[styles.totalSpringsBadge, hasStock ? styles.badgeActive : styles.badgeZero]}>
-                      <Text style={[styles.totalSpringsText, hasStock ? styles.textActive : styles.textZero]}>
-                        {shade.total_springs}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* ACTIONS / IN-PROGRESS CHANGE BUTTON */}
-                  <View style={[styles.tdCol, styles.colActions]}>
-                    {hasPending ? (
-                      <TouchableOpacity
-                        style={styles.changeLotBtn}
-                        onPress={() => {
-                          if (shade.pending_tasks.length > 0) {
-                            openEditPendingTaskModal(shade.pending_tasks[0]);
-                          }
-                        }}
-                      >
-                        <Text style={styles.changeLotBtnText}>
-                          ⏳ {shade.pending_batches} Lot (Change)
+                      <View style={[styles.numberBadge, isSelectedRow && styles.numberBadgeSelected]}>
+                        <Text style={[styles.numberText, isSelectedRow && styles.numberTextSelected]}>
+                          {isSelectedRow ? `👉 ${displayNum}` : displayNum}
                         </Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.editValuesBtn}
-                        onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply)}
-                      >
-                        <Text style={styles.editValuesBtnText}>✏️ Set Qty</Text>
-                      </TouchableOpacity>
-                    )}
+                      </View>
+                      <Text style={[styles.subProgramText, { color: isSelectedRow ? '#1E40AF' : colors.textSecondary }]}>
+                        {shade.program_number}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.mobileTopRight}>
+                      <View style={[styles.totalSpringsBadge, hasStock ? styles.badgeActive : styles.badgeZero]}>
+                        <Text style={[styles.totalSpringsText, hasStock ? styles.textActive : styles.textZero]}>
+                          Total: <Text style={styles.boldText}>{shade.total_springs}</Text>
+                        </Text>
+                      </View>
+
+                      {hasPending ? (
+                        <TouchableOpacity
+                          style={styles.changeLotBtn}
+                          onPress={() => {
+                            if (shade.pending_tasks.length > 0) {
+                              openEditPendingTaskModal(shade.pending_tasks[0]);
+                            }
+                          }}
+                        >
+                          <Text style={styles.changeLotBtnText}>
+                            ⏳ Lot ({shade.pending_batches})
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.editValuesBtn}
+                          onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply)}
+                        >
+                          <Text style={styles.editValuesBtnText}>✏️ Set</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* STEPPERS ROW: 2-PLY & 3-PLY SIDE BY SIDE */}
+                  <View style={styles.mobileSteppersRow}>
+                    {/* 2-PLY BOX */}
+                    <View
+                      style={[
+                        styles.mobileStepperBox,
+                        { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+                        isSelectedRow && selectedPly === '2ply' && styles.mobileBoxActive,
+                      ]}
+                    >
+                      <Text style={[styles.mobileBoxLabel, { color: '#1D4ED8' }]}>🧶 2-PLY</Text>
+                      <View style={styles.stepperButtonsRow}>
+                        <TouchableOpacity
+                          style={[styles.stepperBtn, styles.btnMinus]}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('2ply');
+                            adjustSpringQuantity(shade.shade_number, '2ply', 'decrement');
+                          }}
+                        >
+                          <Text style={styles.stepperBtnText}>−</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.qtyDisplayBox}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('2ply');
+                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                          }}
+                        >
+                          <Text style={[styles.qtyNumberText, { color: '#1E40AF' }]}>
+                            {shade.springs_2ply}
+                          </Text>
+                          <Text style={styles.qtyUnitLabel}>spr</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.stepperBtn, styles.btnPlus]}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('2ply');
+                            adjustSpringQuantity(shade.shade_number, '2ply', 'increment');
+                          }}
+                        >
+                          <Text style={styles.stepperBtnText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* 3-PLY BOX */}
+                    <View
+                      style={[
+                        styles.mobileStepperBox,
+                        { backgroundColor: '#FAF5FF', borderColor: '#E9D5FF' },
+                        isSelectedRow && selectedPly === '3ply' && styles.mobileBoxActive,
+                      ]}
+                    >
+                      <Text style={[styles.mobileBoxLabel, { color: '#7E22CE' }]}>🧵 3-PLY</Text>
+                      <View style={styles.stepperButtonsRow}>
+                        <TouchableOpacity
+                          style={[styles.stepperBtn, styles.btnMinus]}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('3ply');
+                            adjustSpringQuantity(shade.shade_number, '3ply', 'decrement');
+                          }}
+                        >
+                          <Text style={styles.stepperBtnText}>−</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.qtyDisplayBox}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('3ply');
+                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                          }}
+                        >
+                          <Text style={[styles.qtyNumberText, { color: '#6B21A8' }]}>
+                            {shade.springs_3ply}
+                          </Text>
+                          <Text style={styles.qtyUnitLabel}>spr</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.stepperBtn, styles.btnPlus]}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('3ply');
+                            adjustSpringQuantity(shade.shade_number, '3ply', 'increment');
+                          }}
+                        >
+                          <Text style={styles.stepperBtnText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
                 </View>
               );
             })}
           </View>
+        ) : (
+          /* DESKTOP SEQUENCE TABLE (WIDTH >= 720) - HORIZONTALLY PROTECTED */
+          <ScrollView
+            horizontal={true}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ flexGrow: 1 }}
+          >
+            <View style={[styles.tableContainer, { minWidth: 680, backgroundColor: colors.card, borderColor: colors.border }]}>
+              {/* TABLE HEADER */}
+              <View style={styles.tableHeaderRow}>
+                <View style={[styles.thCol, styles.colNum]}>
+                  <Text style={styles.thText}>NUMBER</Text>
+                </View>
+                <View style={[styles.thCol, styles.colPly]}>
+                  <Text style={[styles.thText, { color: '#1D4ED8' }]}>2-PLY SPRINGS (+ / -)</Text>
+                </View>
+                <View style={[styles.thCol, styles.colPly]}>
+                  <Text style={[styles.thText, { color: '#7E22CE' }]}>3-PLY SPRINGS (+ / -)</Text>
+                </View>
+                <View style={[styles.thCol, styles.colTotal]}>
+                  <Text style={styles.thText}>TOTAL SPRINGS</Text>
+                </View>
+                <View style={[styles.thCol, styles.colActions]}>
+                  <Text style={styles.thText}>STATUS & ACTIONS</Text>
+                </View>
+              </View>
+
+              {/* TABLE ROWS */}
+              {filteredShades.map((shade, idx) => {
+                const isSelectedRow = selectedRowIndex === idx;
+                const hasStock = shade.total_springs > 0;
+                const hasPending = shade.pending_batches > 0;
+                const displayNum = shade.display_number || shade.shade_number;
+
+                return (
+                  <View
+                    key={shade.shade_number}
+                    nativeID={`stock-row-${idx}`}
+                    {...({ id: `stock-row-${idx}` } as any)}
+                    ref={el => {
+                      rowRefs.current[idx] = el;
+                    }}
+                    style={[
+                      styles.tableRow,
+                      { borderBottomColor: colors.border },
+                      isSelectedRow && styles.tableRowSelected,
+                      hasStock && !isSelectedRow && styles.tableRowHasStock,
+                    ]}
+                  >
+                    {/* NUMBER COLUMN (001, 002, 003...) */}
+                    <TouchableOpacity
+                      style={[styles.tdCol, styles.colNum]}
+                      onPress={() => setSelectedRowIndex(idx)}
+                    >
+                      <View style={[styles.numberBadge, isSelectedRow && styles.numberBadgeSelected]}>
+                        <Text style={[styles.numberText, isSelectedRow && styles.numberTextSelected]}>
+                          {isSelectedRow ? `👉 ${displayNum}` : displayNum}
+                        </Text>
+                      </View>
+                      <Text style={[styles.subProgramText, { color: isSelectedRow ? '#1E40AF' : colors.textSecondary }]}>
+                        {shade.program_number}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {/* 2-PLY SPRINGS COLUMN WITH (+ -) BUTTONS */}
+                    <View
+                      style={[
+                        styles.tdCol,
+                        styles.colPly,
+                        isSelectedRow && selectedPly === '2ply' && styles.activeCellHighlight,
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={[styles.stepperBtn, styles.btnMinus]}
+                        onPress={() => adjustSpringQuantity(shade.shade_number, '2ply', 'decrement')}
+                      >
+                        <Text style={styles.stepperBtnText}>−</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.qtyDisplayBox}
+                        onPress={() => {
+                          setSelectedRowIndex(idx);
+                          setSelectedPly('2ply');
+                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                        }}
+                      >
+                        <Text style={[styles.qtyNumberText, { color: '#1E40AF' }]}>
+                          {shade.springs_2ply}
+                        </Text>
+                        <Text style={styles.qtyUnitLabel}>spr</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.stepperBtn, styles.btnPlus]}
+                        onPress={() => adjustSpringQuantity(shade.shade_number, '2ply', 'increment')}
+                      >
+                        <Text style={styles.stepperBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* 3-PLY SPRINGS COLUMN WITH (+ -) BUTTONS */}
+                    <View
+                      style={[
+                        styles.tdCol,
+                        styles.colPly,
+                        isSelectedRow && selectedPly === '3ply' && styles.activeCellHighlight,
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={[styles.stepperBtn, styles.btnMinus]}
+                        onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'decrement')}
+                      >
+                        <Text style={styles.stepperBtnText}>−</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.qtyDisplayBox}
+                        onPress={() => {
+                          setSelectedRowIndex(idx);
+                          setSelectedPly('3ply');
+                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                        }}
+                      >
+                        <Text style={[styles.qtyNumberText, { color: '#6B21A8' }]}>
+                          {shade.springs_3ply}
+                        </Text>
+                        <Text style={styles.qtyUnitLabel}>spr</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.stepperBtn, styles.btnPlus]}
+                        onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'increment')}
+                      >
+                        <Text style={styles.stepperBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* TOTAL SPRINGS COLUMN */}
+                    <View style={[styles.tdCol, styles.colTotal]}>
+                      <View style={[styles.totalSpringsBadge, hasStock ? styles.badgeActive : styles.badgeZero]}>
+                        <Text style={[styles.totalSpringsText, hasStock ? styles.textActive : styles.textZero]}>
+                          {shade.total_springs}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* ACTIONS / IN-PROGRESS CHANGE BUTTON */}
+                    <View style={[styles.tdCol, styles.colActions]}>
+                      {hasPending ? (
+                        <TouchableOpacity
+                          style={styles.changeLotBtn}
+                          onPress={() => {
+                            if (shade.pending_tasks.length > 0) {
+                              openEditPendingTaskModal(shade.pending_tasks[0]);
+                            }
+                          }}
+                        >
+                          <Text style={styles.changeLotBtnText}>
+                            ⏳ {shade.pending_batches} Lot (Change)
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.editValuesBtn}
+                          onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply)}
+                        >
+                          <Text style={styles.editValuesBtnText}>✏️ Set Qty</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </ScrollView>
         )}
       </ScrollView>
 
@@ -1107,9 +1289,6 @@ export default function StockInHandScreen() {
             <Text style={[styles.floatingShadeNum, { color: colors.text }]}>
               #{filteredShades[selectedRowIndex].display_number || filteredShades[selectedRowIndex].shade_number}
             </Text>
-            <Text style={[styles.floatingRowIdx, { color: colors.textSecondary }]}>
-              ({selectedRowIndex + 1}/{filteredShades.length})
-            </Text>
           </View>
 
           <View style={styles.floatingCenter}>
@@ -1121,7 +1300,7 @@ export default function StockInHandScreen() {
               onPress={() => setSelectedPly('2ply')}
             >
               <Text style={[styles.floatingPlyToggleText, selectedPly === '2ply' && styles.floatingPlyToggleTextActive]}>
-                2-PLY: {filteredShades[selectedRowIndex].springs_2ply} spr
+                2P: {filteredShades[selectedRowIndex].springs_2ply}
               </Text>
             </TouchableOpacity>
 
@@ -1133,7 +1312,7 @@ export default function StockInHandScreen() {
               onPress={() => setSelectedPly('3ply')}
             >
               <Text style={[styles.floatingPlyToggleText, selectedPly === '3ply' && styles.floatingPlyToggleTextActive]}>
-                3-PLY: {filteredShades[selectedRowIndex].springs_3ply} spr
+                3P: {filteredShades[selectedRowIndex].springs_3ply}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1702,6 +1881,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1.5,
     overflow: 'hidden',
+    minWidth: 680,
   },
   tableHeaderRow: {
     flexDirection: 'row',
@@ -1710,6 +1890,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#1F2937',
     paddingVertical: 9,
     paddingHorizontal: 6,
+    minWidth: 680,
   },
   thCol: {
     justifyContent: 'center',
@@ -1727,6 +1908,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 6,
     alignItems: 'center',
+    minWidth: 680,
   },
   tableRowSelected: {
     backgroundColor: '#DBEAFE',
@@ -1745,10 +1927,12 @@ const styles = StyleSheet.create({
   },
   colNum: {
     width: 80,
+    minWidth: 80,
     alignItems: 'center',
   },
   colPly: {
     flex: 2,
+    minWidth: 160,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1756,10 +1940,12 @@ const styles = StyleSheet.create({
   },
   colTotal: {
     width: 90,
+    minWidth: 90,
     alignItems: 'center',
   },
   colActions: {
     width: 130,
+    minWidth: 130,
     alignItems: 'center',
   },
   tdCol: {
@@ -2038,18 +2224,102 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontWeight: '600',
   },
+  // MOBILE ADAPTIVE CARDS STYLES
+  mobileCardsContainer: {
+    gap: 10,
+    marginBottom: 12,
+  },
+  mobileCard: {
+    borderRadius: 12,
+    borderWidth: 1.5,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  mobileCardSelected: {
+    backgroundColor: '#EFF6FF',
+    borderLeftWidth: 6,
+    borderLeftColor: '#2563EB',
+    borderRightWidth: 4,
+    borderRightColor: '#2563EB',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  mobileCardHasStock: {
+    backgroundColor: '#F0FDF420',
+  },
+  mobileCardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  mobileNumGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mobileTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mobileTotalBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  mobileTotalText: {
+    fontSize: 12,
+  },
+  mobileSteppersRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mobileStepperBox: {
+    flex: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+  },
+  mobileBoxActive: {
+    borderWidth: 2,
+    borderColor: '#2563EB',
+    backgroundColor: '#DBEAFE',
+  },
+  mobileBoxLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  stepperButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+
   // FLOATING STICKY ACTIVE BAR
   floatingActiveBar: {
     position: 'absolute',
-    bottom: 16,
-    left: '50%',
-    transform: [{ translateX: -230 }],
-    width: 460,
-    maxWidth: '94%',
+    bottom: 12,
+    left: 8,
+    right: 8,
+    maxWidth: 460,
+    marginHorizontal: 'auto',
+    alignSelf: 'center',
     borderRadius: 30,
     borderWidth: 2,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
