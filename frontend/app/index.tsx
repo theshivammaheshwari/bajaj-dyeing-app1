@@ -160,7 +160,7 @@ export default function Index() {
   const renderShadeItem = ({ item }: { item: Shade }) => (
     <TouchableOpacity
       style={[styles.shadeCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}
-      onPress={() => router.push(`/calculator?shadeId=${item.id}`)}
+      onPress={() => router.push(`/calculator?shadeId=${item.id}&shadeNumber=${encodeURIComponent(item.shade_number)}`)}
     >
       <View style={styles.shadeHeader}>
         <Text style={[styles.shadeNumber, { color: colors.text }]}>Shade #{item.shade_number}</Text>

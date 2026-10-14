@@ -276,93 +276,210 @@ async def get_shade(shade_id: str):
 async def get_all_dye_names():
     """Get all unique dye names from existing shades for autocomplete"""
     try:
-        # Aggregate to get all unique dye names
         pipeline = [
             {"$unwind": "$dyes"},
             {"$group": {"_id": "$dyes.dye_name"}},
             {"$sort": {"_id": 1}}
         ]
+        dye_names = [doc["_id"] async for doc in db.shades.aggregate(pipeline) if doc.get("_id")]
         return {"dye_names": dye_names}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Error fetching dye names: {e}")
+        return {"dye_names": []}
 
 
-@api_router.get("/shades/batch-history/{shade_number}")
-@api_router.get("/shades/{shade_number}/batch-history")
-async def get_shade_batch_history(shade_number: str):
+@api_router.get("/shades/batch-history")
+@api_router.get("/shades/batch-history/{shade_number:path}")
+@api_router.get("/shades/{shade_number:path}/batch-history")
+async def get_shade_batch_history(shade_number: Optional[str] = None, shade_id: Optional[str] = None):
     """Retrieve full batch history for a specific shade across all daily tasks (dates, machines, 2ply, 3ply, weights, status)"""
     try:
-        clean_shade = str(shade_number).strip().lower().lstrip("#")
+        raw_sn = str(shade_number or "").strip()
+        clean_shade = raw_sn.lstrip("#").strip()
         
-        # Search all daily tasks
-        daily_tasks_cursor = db.daily_tasks.find({})
-        daily_tasks = await daily_tasks_cursor.to_list(10000)
+        target_shade_id = str(shade_id).strip() if shade_id else None
+        target_shade_number = clean_shade
         
-        machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
+        # 1. Resolve shade from database if possible
+        shade_doc = None
+        if target_shade_id and ObjectId.is_valid(target_shade_id):
+            try:
+                shade_doc = await db.shades.find_one({"_id": ObjectId(target_shade_id)})
+            except Exception:
+                pass
+        
+        if not shade_doc and clean_shade and ObjectId.is_valid(clean_shade):
+            try:
+                shade_doc = await db.shades.find_one({"_id": ObjectId(clean_shade)})
+            except Exception:
+                pass
+        
+        if not shade_doc and clean_shade:
+            query_candidates = [
+                {"shade_number": clean_shade},
+                {"shade_number": raw_sn},
+                {"shade_number": f"#{clean_shade}"},
+            ]
+            stripped_sn = clean_shade.lstrip("0")
+            if stripped_sn:
+                query_candidates.append({"shade_number": stripped_sn})
+            if clean_shade.isdigit():
+                try:
+                    query_candidates.append({"shade_number": int(clean_shade)})
+                except Exception:
+                    pass
+            
+            shade_doc = await db.shades.find_one({"$or": query_candidates})
+            
+            if not shade_doc:
+                try:
+                    escaped = re.escape(clean_shade)
+                    shade_doc = await db.shades.find_one({"shade_number": {"$regex": f"^{escaped}$", "$options": "i"}})
+                except Exception:
+                    pass
+        
+        if shade_doc:
+            target_shade_id = str(shade_doc.get("_id", ""))
+            target_shade_number = str(shade_doc.get("shade_number", "")).strip().lstrip("#")
+        
+        clean_shade_lower = clean_shade.lower()
+        target_sn_lower = target_shade_number.lower()
+        clean_shade_unpad = clean_shade_lower.lstrip("0")
+        target_sn_unpad = target_sn_lower.lstrip("0")
+        
+        # 2. Match function for each task in daily tasks
+        def is_task_for_shade(t: dict) -> bool:
+            if not isinstance(t, dict):
+                return False
+            
+            # Match by shade_id
+            t_sid = str(t.get("shade_id") or "").strip()
+            if target_shade_id and t_sid and t_sid == target_shade_id:
+                return True
+            
+            # Match by shade_number fields
+            candidates = [
+                t.get("shade_number"),
+                t.get("original_shade_number"),
+                t.get("updated_shade_number"),
+                t.get("shade_no"),
+                t.get("shade")
+            ]
+            for raw in candidates:
+                if raw is None or raw == "":
+                    continue
+                t_sn = str(raw).strip().lower().lstrip("#")
+                if not t_sn:
+                    continue
+                if t_sn == clean_shade_lower or t_sn == target_sn_lower:
+                    return True
+                t_sn_unpad = t_sn.lstrip("0")
+                if clean_shade_unpad and t_sn_unpad == clean_shade_unpad:
+                    return True
+                if target_sn_unpad and t_sn_unpad == target_sn_unpad:
+                    return True
+                if t_sn.isdigit() and clean_shade.isdigit() and int(t_sn) == int(clean_shade):
+                    return True
+                if t_sn.isdigit() and target_shade_number.isdigit() and int(t_sn) == int(target_shade_number):
+                    return True
+            return False
+
+        # 3. Machine capacities for weight calculation fallback
+        machine_capacities = {
+            'm1': {'capacity': 10.5, 'total_springs': 7},
+            'm2': {'capacity': 12.0, 'total_springs': 8},
+            'm3': {'capacity': 12.0, 'total_springs': 8},
+            'm4': {'capacity': 6.0, 'total_springs': 4},
+            'm5': {'capacity': 24.0, 'total_springs': 16},
+            'm6': {'capacity': 15.0, 'total_springs': 10},
+            'm7': {'capacity': 15.0, 'total_springs': 10},
+            'm8': {'capacity': 12.0, 'total_springs': 8},
+            'm9': {'capacity': 12.0, 'total_springs': 8},
+            'm10': {'capacity': 6.0, 'total_springs': 4},
+            'm11': {'capacity': 6.0, 'total_springs': 4},
+        }
+
+        # 4. Search all daily tasks
+        daily_tasks = await db.daily_tasks.find({}).to_list(10000)
         batches = []
         
         for dt in daily_tasks:
-            dt_date = dt.get("date", "")
+            if not isinstance(dt, dict):
+                continue
+            dt_date = str(dt.get("date", "") or "").strip()
             
-            # 1. Manual Machine Tasks
-            for machine_id in machines:
-                tasks = dt.get(machine_id, [])
-                for t in tasks:
-                    t_sn = str(t.get('shade_number', '')).strip().lower().lstrip("#")
-                    if t_sn == clean_shade:
-                        s2 = int(t.get("springs_2ply", 0) or 0)
-                        s3 = int(t.get("springs_3ply", 0) or 0)
-                        batches.append({
-                            "task_id": str(t.get("id", "")),
-                            "date": dt_date,
-                            "machine": machine_id.upper(),
-                            "shade_number": str(t.get('shade_number', '')),
-                            "springs_2ply": s2,
-                            "springs_3ply": s3,
-                            "total_springs": s2 + s3,
-                            "weight": float(t.get("weight", 0) or 0),
-                            "ply2_weight": float(t.get("ply2_weight", 0) or 0),
-                            "ply3_weight": float(t.get("ply3_weight", 0) or 0),
-                            "status": t.get("status", "pending"),
-                            "assigned_to": t.get("assigned_to", "user1"),
-                            "type": "manual",
-                            "completed_at": t.get("completed_at"),
-                            "start_time": t.get("start_time"),
-                            "end_time": t.get("end_time")
-                        })
-            
-            # 2. Automatic Tasks
-            auto_tasks = dt.get("automatic_tasks", [])
-            for t in auto_tasks:
-                t_sn = str(t.get('shade_number', '')).strip().lower().lstrip("#")
-                if t_sn == clean_shade:
-                    s2 = int(t.get("springs_2ply", 0) or 0)
-                    s3 = int(t.get("springs_3ply", 0) or 0)
-                    m_label = str(t.get("machine", "AUTO")).upper()
+            for k, v in dt.items():
+                if not v or not isinstance(v, list):
+                    continue
+                k_lower = k.lower()
+                is_machine = k_lower.startswith('m') and k_lower[1:].isdigit()
+                is_auto = 'auto' in k_lower
+                
+                if not (is_machine or is_auto):
+                    continue
+                    
+                m_key = k_lower if is_machine else "auto"
+                mc = machine_capacities.get(m_key, {'capacity': 12.0, 'total_springs': 8})
+                capacity = safe_float(mc.get('capacity'), 12.0)
+                tot_springs = safe_int(mc.get('total_springs'), 8)
+                kg_per_spring = capacity / tot_springs if tot_springs > 0 else 1.5
+                
+                for t in v:
+                    if not isinstance(t, dict):
+                        continue
+                    if not is_task_for_shade(t):
+                        continue
+                    
+                    s2 = safe_int(t.get("springs_2ply", 0))
+                    s3 = safe_int(t.get("springs_3ply", 0))
+                    
+                    pw2 = safe_float(t.get("ply2_weight", 0))
+                    w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
+                    
+                    pw3 = safe_float(t.get("ply3_weight", 0))
+                    w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+                    
+                    raw_w = safe_float(t.get("weight", 0))
+                    tot_w = raw_w if raw_w > 0 else ((w2 + w3) if (w2 + w3) > 0 else capacity)
+                    
+                    machine_label = str(t.get("machine") or k).upper()
+                    
                     batches.append({
-                        "task_id": str(t.get("id", "")),
+                        "task_id": str(t.get("id") or t.get("_id") or ""),
                         "date": dt_date,
-                        "machine": m_label,
-                        "shade_number": str(t.get('shade_number', '')),
+                        "machine": machine_label,
+                        "shade_number": str(t.get('shade_number') or target_shade_number or clean_shade),
                         "springs_2ply": s2,
                         "springs_3ply": s3,
                         "total_springs": s2 + s3,
-                        "weight": float(t.get("weight", 0) or 0),
-                        "ply2_weight": float(t.get("ply2_weight", 0) or 0),
-                        "ply3_weight": float(t.get("ply3_weight", 0) or 0),
-                        "status": t.get("status", "pending"),
-                        "assigned_to": t.get("assigned_to", "user1"),
-                        "type": "automatic",
+                        "weight": round(tot_w, 2),
+                        "ply2_weight": round(w2, 2),
+                        "ply3_weight": round(w3, 2),
+                        "status": str(t.get("status", "pending") or "pending").strip().lower(),
+                        "assigned_to": str(t.get("assigned_to", "user1") or "user1"),
+                        "type": "automatic" if is_auto else "manual",
                         "completed_at": t.get("completed_at"),
                         "start_time": t.get("start_time"),
                         "end_time": t.get("end_time")
                     })
         
+        # Deduplicate if duplicate task IDs exist
+        seen_task_ids = set()
+        unique_batches = []
+        for b in batches:
+            tid = b.get("task_id")
+            if tid:
+                if tid in seen_task_ids:
+                    continue
+                seen_task_ids.add(tid)
+            unique_batches.append(b)
+        batches = unique_batches
+        
         # Sort batches descending by date
         batches.sort(key=lambda x: str(x.get("date", "")), reverse=True)
         
-        history_2ply = [b for b in batches if b["springs_2ply"] > 0]
-        history_3ply = [b for b in batches if b["springs_3ply"] > 0]
+        history_2ply = [b for b in batches if b["springs_2ply"] > 0 or b["ply2_weight"] > 0]
+        history_3ply = [b for b in batches if b["springs_3ply"] > 0 or b["ply3_weight"] > 0]
         
         last_batch_date = batches[0]["date"] if batches else None
         last_batch_machine = batches[0]["machine"] if batches else None
@@ -370,7 +487,8 @@ async def get_shade_batch_history(shade_number: str):
         last_3ply_date = history_3ply[0]["date"] if history_3ply else None
         
         return {
-            "shade_number": shade_number,
+            "shade_number": target_shade_number or clean_shade,
+            "shade_id": target_shade_id,
             "found": len(batches) > 0,
             "last_batch_date": last_batch_date,
             "last_batch_machine": last_batch_machine,
@@ -389,7 +507,28 @@ async def get_shade_batch_history(shade_number: str):
             "history_3ply": history_3ply
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(f"Error in get_shade_batch_history: {e}")
+        return {
+            "shade_number": shade_number or "",
+            "shade_id": shade_id or "",
+            "found": False,
+            "last_batch_date": None,
+            "last_batch_machine": None,
+            "last_2ply_date": None,
+            "last_3ply_date": None,
+            "total_batches": 0,
+            "total_2ply_batches": 0,
+            "total_3ply_batches": 0,
+            "total_2ply_springs": 0,
+            "total_3ply_springs": 0,
+            "total_springs": 0,
+            "total_weight": 0.0,
+            "total_completed_batches": 0,
+            "batches": [],
+            "history_2ply": [],
+            "history_3ply": [],
+            "error": str(e)
+        }
 
 
 @api_router.put("/shades/{shade_id}", response_model=Shade)

@@ -1301,7 +1301,8 @@ export default function Calculator() {
 
       <ShadeBatchHistoryModal
         visible={showHistoryModal}
-        shadeNumber={shade?.shade_number || ''}
+        shadeNumber={shade?.shade_number || (params.shadeNumber as string) || ''}
+        shadeId={shadeId}
         initialPlyFilter={historyModalFilter}
         onClose={() => setShowHistoryModal(false)}
       />

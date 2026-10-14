@@ -56,6 +56,7 @@ export interface BatchHistoryData {
 interface Props {
   visible: boolean;
   shadeNumber: string;
+  shadeId?: string;
   initialPlyFilter?: 'all' | '2ply' | '3ply';
   onClose: () => void;
 }
@@ -63,36 +64,73 @@ interface Props {
 export default function ShadeBatchHistoryModal({
   visible,
   shadeNumber,
+  shadeId,
   initialPlyFilter = 'all',
   onClose,
 }: Props) {
   const { colors } = useTheme();
   const [data, setData] = useState<BatchHistoryData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | '2ply' | '3ply'>('all');
 
+  const displayShadeNumber = String(shadeNumber || '').trim().replace(/^#/, '');
+
   useEffect(() => {
-    if (visible && shadeNumber) {
+    if (visible && (shadeNumber || shadeId)) {
       setActiveFilter(initialPlyFilter);
-      fetchHistory(shadeNumber);
+      fetchHistory(String(shadeNumber || ''));
     } else {
       setData(null);
+      setError(null);
     }
-  }, [visible, shadeNumber, initialPlyFilter]);
+  }, [visible, shadeNumber, shadeId, initialPlyFilter]);
 
   const fetchHistory = async (sn: string) => {
     try {
       setLoading(true);
-      const cleanSn = encodeURIComponent(sn.trim().replace(/^#/, ''));
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/shades/batch-history/${cleanSn}`);
-      if (response.ok) {
-        const res = await response.json();
-        setData(res);
+      setError(null);
+      const cleanSn = String(sn || '').trim().replace(/^#/, '');
+      
+      const params = new URLSearchParams();
+      if (cleanSn) params.append('shade_number', cleanSn);
+      if (shadeId) params.append('shade_id', shadeId);
+      
+      let resData: BatchHistoryData | null = null;
+      
+      // 1. Try query-based endpoint
+      try {
+        const queryUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/shades/batch-history?${params.toString()}`;
+        const response = await fetch(queryUrl);
+        if (response.ok) {
+          resData = await response.json();
+        }
+      } catch (e) {
+        console.warn('Query endpoint request failed, attempting path fallback:', e);
+      }
+      
+      // 2. Fallback to path-based endpoint if query didn't return data
+      if (!resData && cleanSn) {
+        try {
+          const pathUrl = `${EXPO_PUBLIC_BACKEND_URL}/api/shades/batch-history/${encodeURIComponent(cleanSn)}`;
+          const response = await fetch(pathUrl);
+          if (response.ok) {
+            resData = await response.json();
+          }
+        } catch (e) {
+          console.warn('Path endpoint request failed:', e);
+        }
+      }
+
+      if (resData) {
+        setData(resData);
       } else {
+        setError('Could not load batch records. Please check connection and try again.');
         setData(null);
       }
-    } catch (error) {
-      console.error('Error fetching shade batch history:', error);
+    } catch (err: any) {
+      console.error('Error fetching shade batch history:', err);
+      setError(err?.message || 'Failed to load batch records');
       setData(null);
     } finally {
       setLoading(false);
@@ -124,7 +162,7 @@ export default function ShadeBatchHistoryModal({
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={[styles.title, { color: colors.text }]}>
-                  📜 Shade #{shadeNumber} Batch Record
+                  📜 Shade #{displayShadeNumber || 'Record'} Batch Record
                 </Text>
                 <View style={[styles.liveBadge, { backgroundColor: colors.primaryLight }]}>
                   <Text style={[styles.liveBadgeText, { color: colors.primary }]}>History</Text>
@@ -144,12 +182,31 @@ export default function ShadeBatchHistoryModal({
               <ActivityIndicator size="large" color={colors.primary} />
               <Text style={{ marginTop: 10, color: colors.textSecondary }}>Fetching batch records...</Text>
             </View>
+          ) : error ? (
+            <View style={styles.emptyContainer}>
+              <Text style={{ fontSize: 36, marginBottom: 8 }}>⚠️</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>Unable to Fetch History</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textSecondary, marginBottom: 12 }]}>
+                {error}
+              </Text>
+              <TouchableOpacity
+                onPress={() => fetchHistory(String(shadeNumber || ''))}
+                style={{
+                  backgroundColor: colors.primary,
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: 'bold' }}>🔄 Retry</Text>
+              </TouchableOpacity>
+            </View>
           ) : !data || data.total_batches === 0 ? (
             <View style={styles.emptyContainer}>
               <Text style={{ fontSize: 36, marginBottom: 8 }}>🔍</Text>
               <Text style={[styles.emptyTitle, { color: colors.text }]}>No Past Batches Found</Text>
               <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                Shade #{shadeNumber} has not been dyed in any recorded daily task yet.
+                Shade #{displayShadeNumber} has not been dyed in any recorded daily task yet.
               </Text>
             </View>
           ) : (
