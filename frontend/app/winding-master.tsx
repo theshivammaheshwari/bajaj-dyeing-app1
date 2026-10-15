@@ -58,8 +58,8 @@ export default function WindingMaster() {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loggedInUser, setLoggedInUser] = useState<string | null>(null);
 
-  // Mode: 'worker' (Operator entry) vs 'register' (Master / Admin view)
-  const [activeTab, setActiveTab] = useState<'worker' | 'register'>('worker');
+  // Mode: 'worker' (Operator entry) vs 'register' (Master Daily Register view)
+  const [activeTab, setActiveTab] = useState<'worker' | 'register'>('register');
 
   // Selected Machine & Date
   const [selectedMachine, setSelectedMachine] = useState<'M1' | 'M2' | 'M3' | 'M4'>('M1');
@@ -125,7 +125,8 @@ export default function WindingMaster() {
           if (name) {
             setOperatorName(name);
           }
-        } else if (role === 'user' || role === 'user1' || role === 'user2') {
+        } else {
+          // Admin & non-operator: only see Master Daily Register
           setActiveTab('register');
         }
       } catch (e) {
@@ -192,10 +193,10 @@ export default function WindingMaster() {
 
   // Load existing tasks on mount or date change
   useEffect(() => {
-    if (activeTab === 'register' || isMasterUser) {
+    if (activeTab === 'register' || userRole !== 'winding_operator') {
       fetchTasks();
     }
-  }, [activeTab, taskDate, isMasterUser]);
+  }, [activeTab, taskDate, userRole]);
 
   const fetchTasks = async () => {
     try {
@@ -462,9 +463,7 @@ export default function WindingMaster() {
           <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
             {userRole === 'winding_operator'
               ? `👤 ${operatorName} (${selectedMachine}) • टास्क & पर्ची अपलोड`
-              : isMasterUser
-              ? `👤 ${loggedInUser || 'Dyeing Master'} • मास्टर डेली रजिस्टर (Daily Register)`
-              : 'वाइंडिंग ऑपरेटर टास्क & पर्ची रिकॉर्ड'}
+              : '📋 मास्टर डेली रजिस्टर (Daily Register) • ऑल मशीन M1–M4'}
           </Text>
         </View>
         {userRole !== 'winding_operator' && (
@@ -477,29 +476,8 @@ export default function WindingMaster() {
         )}
       </View>
 
-      {/* Top Tab Mode Selector (Only Admin gets to switch; Master only sees Register; Operator only sees Worker) */}
-      {userRole === 'admin' ? (
-        <View style={[styles.tabBar, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'worker' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
-            onPress={() => setActiveTab('worker')}
-          >
-            <Text style={[styles.tabBtnText, activeTab === 'worker' ? { color: '#fff' } : { color: colors.text }]}>
-              👷 Operator Task Entry
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'register' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
-            onPress={() => setActiveTab('register')}
-          >
-            <Text style={[styles.tabBtnText, activeTab === 'register' ? { color: '#fff' } : { color: colors.text }]}>
-              📋 Master Daily Register
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
-      {!isMasterUser && activeTab === 'worker' ? (
+      {/* Operator sees task entry; Admin & Master see Master Daily Register */}
+      {userRole === 'winding_operator' ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
           {/* Machine Selector Buttons */}
           <View style={styles.sectionCard}>
