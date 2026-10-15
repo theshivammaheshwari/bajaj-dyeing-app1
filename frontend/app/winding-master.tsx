@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 import { getBackendBaseUrl } from '../lib/api-base';
 
@@ -52,6 +53,10 @@ interface WindingTask {
 export default function WindingMaster() {
   const router = useRouter();
   const { colors } = useTheme();
+
+  // User Auth State
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [loggedInUser, setLoggedInUser] = useState<string | null>(null);
 
   // Mode: 'worker' (Operator entry) vs 'register' (Master / Admin view)
   const [activeTab, setActiveTab] = useState<'worker' | 'register'>('worker');
@@ -103,18 +108,73 @@ export default function WindingMaster() {
   // Hidden File input ref for Web / Mobile Browser camera
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Set default operator name when machine changes
+  // Load authenticated user profile
   useEffect(() => {
-    if (selectedMachine === 'M1') {
-      setOperatorName('Phool');
-    } else if (selectedMachine === 'M2') {
-      setOperatorName('Rajeev');
-    } else if (selectedMachine === 'M3') {
-      setOperatorName('Operator 3');
-    } else if (selectedMachine === 'M4') {
-      setOperatorName('Operator 4');
+    const loadAuth = async () => {
+      try {
+        const role = await AsyncStorage.getItem('userRole');
+        const name = await AsyncStorage.getItem('userName');
+        const machine = await AsyncStorage.getItem('assignedMachine');
+        setUserRole(role);
+        if (name) setLoggedInUser(name);
+        if (role === 'winding_operator') {
+          setActiveTab('worker');
+          if (machine && ['M1', 'M2', 'M3', 'M4'].includes(machine)) {
+            setSelectedMachine(machine as any);
+          }
+          if (name) {
+            setOperatorName(name);
+          }
+        }
+      } catch (e) {
+        console.log('Error loading auth in winding-master', e);
+      }
+    };
+    loadAuth();
+  }, []);
+
+  // Set default operator name when machine changes (if not fixed by login)
+  useEffect(() => {
+    if (userRole === 'winding_operator' && loggedInUser) {
+      setOperatorName(loggedInUser);
+    } else {
+      if (selectedMachine === 'M1') {
+        setOperatorName('Phool');
+      } else if (selectedMachine === 'M2') {
+        setOperatorName('Rajeev');
+      } else if (selectedMachine === 'M3') {
+        setOperatorName('Operator 3');
+      } else if (selectedMachine === 'M4') {
+        setOperatorName('Operator 4');
+      }
     }
-  }, [selectedMachine]);
+  }, [selectedMachine, userRole, loggedInUser]);
+
+  // Logout handler
+  const handleLogout = async () => {
+    const performLogout = async () => {
+      await AsyncStorage.removeItem('isAuthenticated');
+      await AsyncStorage.removeItem('userRole');
+      await AsyncStorage.removeItem('userName');
+      await AsyncStorage.removeItem('assignedMachine');
+      if (Platform.OS === 'web') {
+        window.location.href = '/login';
+      } else {
+        router.replace('/login');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to logout? (क्या आप लॉगआउट करना चाहते हैं?)');
+      if (confirmed) performLogout();
+      return;
+    }
+
+    Alert.alert('Logout', 'Are you sure you want to logout? (क्या आप लॉगआउट करना चाहते हैं?)', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Logout', style: 'destructive', onPress: performLogout },
+    ]);
+  };
 
   // Load existing tasks on mount or date change
   useEffect(() => {
@@ -363,9 +423,21 @@ export default function WindingMaster() {
 
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
-        </TouchableOpacity>
+        {userRole === 'winding_operator' ? (
+          <TouchableOpacity
+            onPress={handleLogout}
+            style={[
+              styles.backButton,
+              { backgroundColor: '#FED7D7', borderColor: '#FEB2B2', borderWidth: 1, paddingHorizontal: 12 }
+            ]}
+          >
+            <Text style={[styles.backText, { color: '#C53030', fontWeight: 'bold' }]}>🚪 Logout</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
+          </TouchableOpacity>
+        )}
         <View style={{ flex: 1, marginLeft: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>🧵 Winding Master</Text>
@@ -374,30 +446,42 @@ export default function WindingMaster() {
             </View>
           </View>
           <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-            वाइंडिंग ऑपरेटर टास्क & पर्ची रिकॉर्ड
+            {userRole === 'winding_operator'
+              ? `👤 ${operatorName} (${selectedMachine}) • टास्क & पर्ची अपलोड`
+              : 'वाइंडिंग ऑपरेटर टास्क & पर्ची रिकॉर्ड'}
           </Text>
         </View>
+        {userRole !== 'winding_operator' && (
+          <TouchableOpacity
+            onPress={handleLogout}
+            style={[styles.backButton, { backgroundColor: colors.inputBackground, borderColor: colors.border, borderWidth: 1, paddingHorizontal: 10 }]}
+          >
+            <Text style={[styles.backText, { color: colors.textSecondary }]}>Logout</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
-      {/* Top Tab Mode Selector */}
-      <View style={[styles.tabBar, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'worker' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
-          onPress={() => setActiveTab('worker')}
-        >
-          <Text style={[styles.tabBtnText, activeTab === 'worker' ? { color: '#fff' } : { color: colors.text }]}>
-            👷 Operator Task Entry
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'register' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
-          onPress={() => setActiveTab('register')}
-        >
-          <Text style={[styles.tabBtnText, activeTab === 'register' ? { color: '#fff' } : { color: colors.text }]}>
-            📋 Master Daily Register
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {/* Top Tab Mode Selector (Only show tabs for Admin / Masters; hidden for operators) */}
+      {userRole !== 'winding_operator' ? (
+        <View style={[styles.tabBar, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'worker' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
+            onPress={() => setActiveTab('worker')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'worker' ? { color: '#fff' } : { color: colors.text }]}>
+              👷 Operator Task Entry
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, activeTab === 'register' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
+            onPress={() => setActiveTab('register')}
+          >
+            <Text style={[styles.tabBtnText, activeTab === 'register' ? { color: '#fff' } : { color: colors.text }]}>
+              📋 Master Daily Register
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {activeTab === 'worker' ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>

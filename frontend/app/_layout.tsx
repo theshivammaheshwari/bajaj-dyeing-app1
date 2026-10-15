@@ -49,18 +49,25 @@ function RootLayoutContent() {
       if (inLoginScreen) {
         // Authenticated but on login screen, redirect based on role
         console.log('Already logged in, redirecting');
-        router.replace(userRole === 'admin' ? '/' : '/dyeing-master');
+        if (userRole === 'winding_operator') {
+          router.replace('/winding-master');
+        } else if (userRole === 'admin') {
+          router.replace('/');
+        } else {
+          router.replace('/dyeing-master');
+        }
       } else {
         // Role-based access control
-        const isAdminRoute = ['/', '/daily-tasks', '/add-daily-task', '/edit-daily-task', '/add-shade', '/edit-shade', '/settings', '/monthly-report', '/stock-in-hand'].includes(pathname);
+        const isOperator = userRole === 'winding_operator';
         const isMaster = userRole === 'user' || userRole === 'user1' || userRole === 'user2';
+        const isAdminRoute = ['/', '/daily-tasks', '/add-daily-task', '/edit-daily-task', '/add-shade', '/edit-shade', '/settings', '/monthly-report', '/stock-in-hand'].includes(pathname);
 
-        if (isMaster && isAdminRoute) {
+        if (isOperator && pathname !== '/winding-master') {
+          console.log('Winding operator attempting to access other route, redirecting to winding-master');
+          router.replace('/winding-master');
+        } else if (isMaster && isAdminRoute) {
           console.log('Dyeing master attempting to access Admin route, redirecting to dyeing-master');
           router.replace('/dyeing-master');
-        } else if (userRole === 'admin' && pathname === '/dyeing-master') {
-          // Admin can see dyeing-master if they want, but home is /
-          // router.replace('/'); // Usually admin should be allowed anywhere
         }
       }
     }

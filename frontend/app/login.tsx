@@ -20,16 +20,28 @@ const ADMIN_PASSWORD = '1987';
 const MASTER_1_PASSWORD = '3020';
 const MASTER_2_PASSWORD = '6922';
 
+// Winding Operator Accounts
+const OPERATORS: { [key: string]: { user: string; pass: string; name: string; machine: string } } = {
+  phool: { user: 'phool', pass: 'phool@123', name: 'Phool', machine: 'M1' },
+  rajeev: { user: 'rajeev', pass: 'rajeev@123', name: 'Rajeev', machine: 'M2' },
+  operator3: { user: 'operator3', pass: 'op3@123', name: 'Operator 3', machine: 'M3' },
+  operator4: { user: 'operator4', pass: 'op4@123', name: 'Operator 4', machine: 'M4' },
+};
+
 export default function Login() {
   const router = useRouter();
   const { colors } = useTheme();
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleLogin = async () => {
     setError('');
-    if (!password.trim()) {
+    const cleanPass = password.trim();
+    const cleanUser = username.trim().toLowerCase();
+
+    if (!cleanPass) {
       setError('Please enter password');
       return;
     }
@@ -38,15 +50,42 @@ export default function Login() {
 
     let role = '';
     let userName = '';
-    if (password === ADMIN_PASSWORD) {
+    let assignedMachine = '';
+    let redirectPath = '/';
+
+    // 1. Check Admin
+    if (cleanPass === ADMIN_PASSWORD && (!cleanUser || cleanUser === 'admin')) {
       role = 'admin';
       userName = 'Admin';
-    } else if (password === MASTER_1_PASSWORD) {
+      redirectPath = '/';
+    }
+    // 2. Check Dyeing Masters
+    else if (cleanPass === MASTER_1_PASSWORD && (!cleanUser || cleanUser === 'master1' || cleanUser === 'user1')) {
       role = 'user1';
       userName = 'Dyeing Master 1';
-    } else if (password === MASTER_2_PASSWORD) {
+      redirectPath = '/dyeing-master';
+    } else if (cleanPass === MASTER_2_PASSWORD && (!cleanUser || cleanUser === 'master2' || cleanUser === 'user2')) {
       role = 'user2';
       userName = 'Dyeing Master 2';
+      redirectPath = '/dyeing-master';
+    }
+    // 3. Check Winding Operators (Phool, Rajeev, Operator 3, Operator 4)
+    else {
+      // Find operator by matching password OR (username + password)
+      let foundOp = null;
+      for (const op of Object.values(OPERATORS)) {
+        if (cleanPass === op.pass && (!cleanUser || cleanUser === op.user)) {
+          foundOp = op;
+          break;
+        }
+      }
+
+      if (foundOp) {
+        role = 'winding_operator';
+        userName = foundOp.name;
+        assignedMachine = foundOp.machine;
+        redirectPath = '/winding-master';
+      }
     }
 
     if (role) {
@@ -54,12 +93,15 @@ export default function Login() {
         await AsyncStorage.setItem('isAuthenticated', 'true');
         await AsyncStorage.setItem('userRole', role);
         await AsyncStorage.setItem('userName', userName);
+        if (assignedMachine) {
+          await AsyncStorage.setItem('assignedMachine', assignedMachine);
+        }
 
         setTimeout(() => {
           if (typeof window !== 'undefined') {
-            window.location.href = role === 'admin' ? '/' : '/dyeing-master';
+            window.location.href = redirectPath;
           } else {
-            router.replace(role === 'admin' ? '/' : '/dyeing-master');
+            router.replace(redirectPath as any);
           }
         }, 100);
       } catch (err) {
@@ -68,7 +110,7 @@ export default function Login() {
         setLoading(false);
       }
     } else {
-      setError('Incorrect password. Please try again.');
+      setError('Incorrect username or password. Please try again.');
       setPassword('');
       setLoading(false);
     }
@@ -89,17 +131,38 @@ export default function Login() {
               resizeMode="contain"
             />
             <Text style={[styles.appName, { color: colors.text }]}>Bajaj Dyeing Unit</Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Thread Dyeing Recipe Calculator</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Thread Dyeing & Winding Management</Text>
           </View>
 
           <View style={[styles.loginCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}>
             <Text style={[styles.title, { color: colors.text }]}>Welcome Back</Text>
             <Text style={[styles.description, { color: colors.textSecondary }]}>
-              Enter your password to access the dashboard
+              Enter username & password or PIN to access your workspace
             </Text>
 
+            {/* Username Input */}
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Username (ऑपरेटर यूजरनेम)</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    color: colors.text,
+                    backgroundColor: colors.inputBackground,
+                    borderColor: colors.border
+                  }
+                ]}
+                placeholder="phool, rajeev (optional for Admin/Master)"
+                placeholderTextColor={colors.textSecondary}
+                value={username}
+                onChangeText={(t) => { setUsername(t); setError(''); }}
+                autoCapitalize="none"
+              />
+            </View>
+
+            {/* Password Input */}
+            <View style={styles.inputContainer}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Password (पासवर्ड)</Text>
               <TextInput
                 style={[
                   styles.input,
@@ -114,9 +177,7 @@ export default function Login() {
                 secureTextEntry
                 value={password}
                 onChangeText={(t) => { setPassword(t); setError(''); }}
-                keyboardType="number-pad"
-                maxLength={10}
-                autoFocus
+                autoCapitalize="none"
                 onSubmitEditing={handleLogin}
               />
               {error ? (
@@ -136,9 +197,9 @@ export default function Login() {
           </View>
 
           <View style={styles.footer}>
-            <Text style={[styles.footerText, { color: colors.primary }]}>🔒 Secure Access</Text>
+            <Text style={[styles.footerText, { color: colors.primary }]}>🔒 Role-Based Access</Text>
             <Text style={[styles.footerSubtext, { color: colors.textSecondary }]}>
-              Your data is protected with password authentication
+              Admin • Dyeing Masters • Winding Operators (M1–M4)
             </Text>
           </View>
         </View>

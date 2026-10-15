@@ -7,7 +7,11 @@ import os
 import re
 import logging
 import base64
-import requests
+import json
+import urllib.request
+import urllib.parse
+import hashlib
+import time
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -2549,9 +2553,10 @@ async def upload_parchi_image(req: WindingUploadRequest):
                 else:
                     post_data["upload_preset"] = "ml_default"
                 
-                resp = requests.post(c_url, data=post_data, timeout=15)
-                if resp.status_code == 200:
-                    c_res = resp.json()
+                encoded_data = urllib.parse.urlencode(post_data).encode("utf-8")
+                http_req = urllib.request.Request(c_url, data=encoded_data, method="POST")
+                with urllib.request.urlopen(http_req, timeout=15) as resp:
+                    c_res = json.loads(resp.read().decode("utf-8"))
                     sec_url = c_res.get("secure_url") or c_res.get("url")
                     if sec_url:
                         return {"url": sec_url, "provider": "cloudinary"}
