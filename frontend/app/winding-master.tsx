@@ -125,6 +125,8 @@ export default function WindingMaster() {
           if (name) {
             setOperatorName(name);
           }
+        } else if (role === 'user' || role === 'user1' || role === 'user2') {
+          setActiveTab('register');
         }
       } catch (e) {
         console.log('Error loading auth in winding-master', e);
@@ -176,12 +178,24 @@ export default function WindingMaster() {
     ]);
   };
 
+  const isMasterUser = userRole === 'user' || userRole === 'user1' || userRole === 'user2';
+
+  const handleBack = () => {
+    if (isMasterUser) {
+      router.replace('/dyeing-master');
+    } else if (userRole === 'admin') {
+      router.replace('/');
+    } else {
+      router.back();
+    }
+  };
+
   // Load existing tasks on mount or date change
   useEffect(() => {
-    if (activeTab === 'register') {
+    if (activeTab === 'register' || isMasterUser) {
       fetchTasks();
     }
-  }, [activeTab, taskDate]);
+  }, [activeTab, taskDate, isMasterUser]);
 
   const fetchTasks = async () => {
     try {
@@ -434,7 +448,7 @@ export default function WindingMaster() {
             <Text style={[styles.backText, { color: '#C53030', fontWeight: 'bold' }]}>🚪 Logout</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
           </TouchableOpacity>
         )}
@@ -448,6 +462,8 @@ export default function WindingMaster() {
           <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
             {userRole === 'winding_operator'
               ? `👤 ${operatorName} (${selectedMachine}) • टास्क & पर्ची अपलोड`
+              : isMasterUser
+              ? `👤 ${loggedInUser || 'Dyeing Master'} • मास्टर डेली रजिस्टर (Daily Register)`
               : 'वाइंडिंग ऑपरेटर टास्क & पर्ची रिकॉर्ड'}
           </Text>
         </View>
@@ -461,8 +477,8 @@ export default function WindingMaster() {
         )}
       </View>
 
-      {/* Top Tab Mode Selector (Only show tabs for Admin / Masters; hidden for operators) */}
-      {userRole !== 'winding_operator' ? (
+      {/* Top Tab Mode Selector (Only Admin gets to switch; Master only sees Register; Operator only sees Worker) */}
+      {userRole === 'admin' ? (
         <View style={[styles.tabBar, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'worker' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
@@ -483,7 +499,7 @@ export default function WindingMaster() {
         </View>
       ) : null}
 
-      {activeTab === 'worker' ? (
+      {!isMasterUser && activeTab === 'worker' ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
           {/* Machine Selector Buttons */}
           <View style={styles.sectionCard}>

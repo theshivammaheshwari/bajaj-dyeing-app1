@@ -547,6 +547,19 @@ export default function DyeingMaster() {
           </TouchableOpacity>
         )}
 
+        <TouchableOpacity
+          style={{
+            paddingHorizontal: 12,
+            paddingVertical: 7,
+            borderRadius: 8,
+            backgroundColor: '#805AD5',
+            marginRight: 6,
+          }}
+          onPress={() => router.push('/winding-master' as any)}
+        >
+          <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#fff' }}>🧵 Winding Register</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={[styles.logoutButton, { backgroundColor: colors.danger }]} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
