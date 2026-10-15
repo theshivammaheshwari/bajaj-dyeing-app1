@@ -50,6 +50,16 @@ interface WindingTask {
   created_at?: string;
 }
 
+const ALL_SHADES_LIST = Array.from({ length: 460 }, (_, i) => String(i + 1));
+
+const getTodayDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function WindingMaster() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -63,11 +73,18 @@ export default function WindingMaster() {
 
   // Selected Machine & Date
   const [selectedMachine, setSelectedMachine] = useState<'M1' | 'M2' | 'M3' | 'M4'>('M1');
-  const [taskDate, setTaskDate] = useState<string>(() => {
-    const d = new Date();
-    return d.toISOString().split('T')[0];
-  });
+  const [taskDate, setTaskDate] = useState<string>(getTodayDateString);
   const [operatorName, setOperatorName] = useState<string>('Phool');
+
+  // Shade Picker Dropdown & Range Modal State
+  const [shadePickerVisible, setShadePickerVisible] = useState<boolean>(false);
+  const [shadeTarget, setShadeTarget] = useState<{
+    section: 'k800' | 'dolly' | 'head';
+    rowIdx: number;
+    headIdx?: number;
+  } | null>(null);
+  const [shadeSearch, setShadeSearch] = useState<string>('');
+  const [rangeTab, setRangeTab] = useState<'all' | '1-100' | '101-200' | '201-300' | '301-400' | '401-460'>('all');
 
   // M1 Operator Running M2 as well toggle
   const [isExtraM2, setIsExtraM2] = useState<boolean>(false);
@@ -119,12 +136,28 @@ export default function WindingMaster() {
         if (name) setLoggedInUser(name);
         if (role === 'winding_operator') {
           setActiveTab('worker');
-          if (machine && ['M1', 'M2', 'M3', 'M4'].includes(machine)) {
-            setSelectedMachine(machine as any);
+          // Strict 1-worker to 1-machine lock
+          // phool -> M1, rajeev -> M2, operator3 -> M3, operator4 -> M4
+          let lockedMachine: 'M1' | 'M2' | 'M3' | 'M4' = 'M1';
+          let lockedName = name || 'Phool';
+          const lowerName = (name || '').toLowerCase();
+          if (lowerName.includes('phool')) {
+            lockedMachine = 'M1';
+            lockedName = 'Phool';
+          } else if (lowerName.includes('rajeev')) {
+            lockedMachine = 'M2';
+            lockedName = 'Rajeev';
+          } else if (lowerName.includes('3')) {
+            lockedMachine = 'M3';
+            lockedName = 'Operator 3';
+          } else if (lowerName.includes('4')) {
+            lockedMachine = 'M4';
+            lockedName = 'Operator 4';
+          } else if (machine && ['M1', 'M2', 'M3', 'M4'].includes(machine)) {
+            lockedMachine = machine as any;
           }
-          if (name) {
-            setOperatorName(name);
-          }
+          setSelectedMachine(lockedMachine);
+          setOperatorName(lockedName);
         } else {
           // Admin & non-operator: only see Master Daily Register
           setActiveTab('register');
@@ -190,6 +223,50 @@ export default function WindingMaster() {
       router.back();
     }
   };
+
+  // Open shade picker modal
+  const openShadePicker = (section: 'k800' | 'dolly' | 'head', rowIdx: number, headIdx?: number) => {
+    setShadeTarget({ section, rowIdx, headIdx });
+    setShadeSearch('');
+    setRangeTab('all');
+    setShadePickerVisible(true);
+  };
+
+  // Handle selecting a shade from dropdown modal
+  const handleSelectShade = (shadeNum: string) => {
+    if (!shadeTarget) return;
+    if (shadeTarget.section === 'k800') {
+      const updated = [...m1K800Items];
+      updated[shadeTarget.rowIdx].shade_number = shadeNum;
+      setM1K800Items(updated);
+    } else if (shadeTarget.section === 'dolly') {
+      const updated = [...m1DollyItems];
+      updated[shadeTarget.rowIdx].shade_number = shadeNum;
+      setM1DollyItems(updated);
+    } else if (shadeTarget.section === 'head' && shadeTarget.headIdx !== undefined) {
+      const updated = [...m2Heads];
+      updated[shadeTarget.headIdx].items[shadeTarget.rowIdx].shade_number = shadeNum;
+      setM2Heads(updated);
+    }
+    setShadePickerVisible(false);
+    setShadeTarget(null);
+  };
+
+  // Filter shades #1 to #460 based on search query and range tab
+  const filteredShades = ALL_SHADES_LIST.filter((sn) => {
+    const num = parseInt(sn, 10);
+    if (rangeTab === '1-100' && (num < 1 || num > 100)) return false;
+    if (rangeTab === '101-200' && (num < 101 || num > 200)) return false;
+    if (rangeTab === '201-300' && (num < 201 || num > 300)) return false;
+    if (rangeTab === '301-400' && (num < 301 || num > 400)) return false;
+    if (rangeTab === '401-460' && (num < 401 || num > 460)) return false;
+
+    if (shadeSearch.trim()) {
+      const q = shadeSearch.trim().replace(/^#/, '');
+      return sn.includes(q);
+    }
+    return true;
+  });
 
   // Load existing tasks on mount or date change
   useEffect(() => {
@@ -479,85 +556,81 @@ export default function WindingMaster() {
       {/* Operator sees task entry; Admin & Master see Master Daily Register */}
       {userRole === 'winding_operator' ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
-          {/* Machine Selector Buttons */}
-          <View style={styles.sectionCard}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>🏭 Select Machine (मशीन चुनें)</Text>
-            <View style={styles.machineRow}>
-              {(['M1', 'M2', 'M3', 'M4'] as const).map((m) => {
-                const isSelected = selectedMachine === m;
-                return (
-                  <TouchableOpacity
-                    key={m}
-                    style={[
-                      styles.machineBtn,
-                      { borderColor: colors.border, backgroundColor: colors.inputBackground },
-                      isSelected && { backgroundColor: colors.primary, borderColor: colors.primary },
-                    ]}
-                    onPress={() => setSelectedMachine(m)}
-                  >
-                    <Text style={[styles.machineBtnTitle, isSelected ? { color: '#fff' } : { color: colors.text }]}>
-                      {m}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.machineBtnSub,
-                        isSelected ? { color: 'rgba(255,255,255,0.85)' } : { color: colors.textSecondary },
-                      ]}
-                    >
-                      {m === 'M1' ? 'K800 + Dolly' : 'Zip 135m'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            {/* Operator & Date Row */}
-            <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Operator Name (ऑपरेटर)</Text>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  value={operatorName}
-                  onChangeText={setOperatorName}
-                  placeholder="Operator name"
-                  placeholderTextColor={colors.textSecondary}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Task Date (तारीख)</Text>
-                <TextInput
-                  style={[styles.textInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
-                  value={taskDate}
-                  onChangeText={setTaskDate}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textSecondary}
-                />
-              </View>
-            </View>
-
-            {/* Special M1 Option: Run M2 as well */}
-            {selectedMachine === 'M1' && (
-              <TouchableOpacity
-                onPress={() => setIsExtraM2(!isExtraM2)}
-                style={[
-                  styles.extraM2Toggle,
-                  {
-                    backgroundColor: isExtraM2 ? '#FEFCBF' : colors.inputBackground,
-                    borderColor: isExtraM2 ? '#D69E2E' : colors.border,
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 18 }}>{isExtraM2 ? '☑️' : '⬜'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: 'bold', fontSize: 14, color: isExtraM2 ? '#744210' : colors.text }}>
-                    Run Machine M-2 Also (M1 ऑपरेटर M-2 भी चला रहा है)
+          {/* Machine & Worker Card (1 Worker - 1 Machine Locked) */}
+          <View style={[styles.sectionCard, { borderColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={[styles.machineBadgeLarge, { backgroundColor: colors.primary }]}>
+                  <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>{selectedMachine}</Text>
+                </View>
+                <View>
+                  <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>
+                    🏭 Assigned Machine: {selectedMachine}
                   </Text>
-                  <Text style={{ fontSize: 11, color: colors.textSecondary }}>
-                    Tick this if M1 worker is operating M2 machine today
+                  <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                    {selectedMachine === 'M1'
+                      ? 'Kohinoor 800 mtr (K800) + Dolly Gold'
+                      : `${selectedMachine} - Zip 135 mtr (4 Heads)`}
                   </Text>
                 </View>
-              </TouchableOpacity>
-            )}
+              </View>
+              <View style={{ backgroundColor: '#C6F6D5', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#9AE6B4' }}>
+                <Text style={{ color: '#22543D', fontSize: 11, fontWeight: 'bold' }}>🔒 Locked to Worker</Text>
+              </View>
+            </View>
+
+            {/* Worker & Date Row */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Worker (वर्कर)</Text>
+                <View
+                  style={[
+                    styles.textInput,
+                    {
+                      backgroundColor: colors.inputBackground,
+                      borderColor: colors.border,
+                      justifyContent: 'center',
+                    },
+                  ]}
+                >
+                  <Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 14 }}>
+                    👤 {operatorName} <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: 'normal' }}>🔒 (Locked)</Text>
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>📅 Task Date (कैलेंडर से तारीख)</Text>
+                {Platform.OS === 'web' ? (
+                  <input
+                    type="date"
+                    value={taskDate}
+                    onChange={(e) => setTaskDate(e.target.value)}
+                    style={{
+                      backgroundColor: colors.inputBackground,
+                      color: colors.text,
+                      border: `1px solid ${colors.border}`,
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                      fontSize: 14,
+                      fontFamily: 'inherit',
+                      outline: 'none',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      cursor: 'pointer',
+                    }}
+                  />
+                ) : (
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                    value={taskDate}
+                    onChangeText={setTaskDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                )}
+              </View>
+            </View>
           </View>
 
           {/* Start / Complete Task Timer Card */}
@@ -668,20 +741,29 @@ export default function WindingMaster() {
                 {/* Items List */}
                 {m1K800Items.map((item, idx) => (
                   <View key={item.id} style={styles.entryRow}>
-                    <TextInput
-                      style={[
-                        styles.shadeInput,
-                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
-                      ]}
-                      placeholder="e.g. 136, 1310"
-                      placeholderTextColor={colors.textSecondary}
-                      value={item.shade_number}
-                      onChangeText={(val) => {
-                        const updated = [...m1K800Items];
-                        updated[idx].shade_number = val;
-                        setM1K800Items(updated);
-                      }}
-                    />
+                    <View style={styles.shadeInputWrapper}>
+                      <TextInput
+                        style={[
+                          styles.shadeInput,
+                          { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                        ]}
+                        placeholder="Shade #1–#460"
+                        placeholderTextColor={colors.textSecondary}
+                        value={item.shade_number}
+                        keyboardType="numeric"
+                        onChangeText={(val) => {
+                          const updated = [...m1K800Items];
+                          updated[idx].shade_number = val.replace(/^#/, '');
+                          setM1K800Items(updated);
+                        }}
+                      />
+                      <TouchableOpacity
+                        style={styles.dropdownIconBtn}
+                        onPress={() => openShadePicker('k800', idx)}
+                      >
+                        <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TextInput
                       style={[
                         styles.springInput,
@@ -762,20 +844,29 @@ export default function WindingMaster() {
                 {/* Items List */}
                 {m1DollyItems.map((item, idx) => (
                   <View key={item.id} style={styles.entryRow}>
-                    <TextInput
-                      style={[
-                        styles.shadeInput,
-                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
-                      ]}
-                      placeholder="e.g. 104, 381"
-                      placeholderTextColor={colors.textSecondary}
-                      value={item.shade_number}
-                      onChangeText={(val) => {
-                        const updated = [...m1DollyItems];
-                        updated[idx].shade_number = val;
-                        setM1DollyItems(updated);
-                      }}
-                    />
+                    <View style={styles.shadeInputWrapper}>
+                      <TextInput
+                        style={[
+                          styles.shadeInput,
+                          { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                        ]}
+                        placeholder="Shade #1–#460"
+                        placeholderTextColor={colors.textSecondary}
+                        value={item.shade_number}
+                        keyboardType="numeric"
+                        onChangeText={(val) => {
+                          const updated = [...m1DollyItems];
+                          updated[idx].shade_number = val.replace(/^#/, '');
+                          setM1DollyItems(updated);
+                        }}
+                      />
+                      <TouchableOpacity
+                        style={styles.dropdownIconBtn}
+                        onPress={() => openShadePicker('dolly', idx)}
+                      >
+                        <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TextInput
                       style={[
                         styles.springInput,
@@ -863,20 +954,29 @@ export default function WindingMaster() {
 
                       {head.items.map((it, iIdx) => (
                         <View key={it.id} style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                          <TextInput
-                            style={[
-                              styles.shadeInput,
-                              { backgroundColor: colors.card, color: colors.text, borderColor: colors.border, flex: 2 },
-                            ]}
-                            placeholder={`Shade (e.g. ${hIdx === 0 ? '149' : hIdx === 1 ? '211' : '212'})`}
-                            placeholderTextColor={colors.textSecondary}
-                            value={it.shade_number}
-                            onChangeText={(val) => {
-                              const updated = [...m2Heads];
-                              updated[hIdx].items[iIdx].shade_number = val;
-                              setM2Heads(updated);
-                            }}
-                          />
+                          <View style={styles.shadeInputWrapper}>
+                            <TextInput
+                              style={[
+                                styles.shadeInput,
+                                { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
+                              ]}
+                              placeholder="Shade #1–#460"
+                              placeholderTextColor={colors.textSecondary}
+                              value={it.shade_number}
+                              keyboardType="numeric"
+                              onChangeText={(val) => {
+                                const updated = [...m2Heads];
+                                updated[hIdx].items[iIdx].shade_number = val.replace(/^#/, '');
+                                setM2Heads(updated);
+                              }}
+                            />
+                            <TouchableOpacity
+                              style={styles.dropdownIconBtn}
+                              onPress={() => openShadePicker('head', iIdx, hIdx)}
+                            >
+                              <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                            </TouchableOpacity>
+                          </View>
                           <TextInput
                             style={[
                               styles.springInput,
@@ -1160,6 +1260,113 @@ export default function WindingMaster() {
                 resizeMode="contain"
               />
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Shade Selection Dropdown & Range Modal */}
+      <Modal
+        visible={shadePickerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShadePickerVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.shadeModalBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Modal Header */}
+            <View style={styles.shadeModalHeader}>
+              <View>
+                <Text style={[styles.shadeModalTitle, { color: colors.text }]}>
+                  🎨 Select Shade (शेड चुनें)
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                  Range #1 to #460 (लिखें या सीधे टैप करें)
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShadePickerVisible(false)}
+                style={[styles.closeBtn, { backgroundColor: colors.inputBackground }]}
+              >
+                <Text style={{ fontSize: 16, color: colors.textSecondary, fontWeight: 'bold' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Direct Search / Typing Box inside Modal */}
+            <View style={{ marginVertical: 12 }}>
+              <TextInput
+                style={[
+                  styles.shadeSearchInput,
+                  { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.primary },
+                ]}
+                placeholder="🔍 Type shade number (e.g. 15, 136, 460)..."
+                placeholderTextColor={colors.textSecondary}
+                value={shadeSearch}
+                onChangeText={setShadeSearch}
+                keyboardType="numeric"
+                autoFocus
+                onSubmitEditing={() => {
+                  if (shadeSearch.trim()) {
+                    handleSelectShade(shadeSearch.trim().replace(/^#/, ''));
+                  }
+                }}
+              />
+            </View>
+
+            {/* Quick Range Filter Tabs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, maxHeight: 38 }}>
+              {(['all', '1-100', '101-200', '201-300', '301-400', '401-460'] as const).map((r) => {
+                const isSelected = rangeTab === r;
+                return (
+                  <TouchableOpacity
+                    key={r}
+                    onPress={() => setRangeTab(r)}
+                    style={[
+                      styles.rangeTabBtn,
+                      {
+                        backgroundColor: isSelected ? colors.primary : colors.inputBackground,
+                        borderColor: isSelected ? colors.primary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: isSelected ? '#fff' : colors.text, fontSize: 12, fontWeight: 'bold' }}>
+                      {r === 'all' ? 'All (1–460)' : `#${r}`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Shades Grid (Range #1 to #460) */}
+            <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={styles.shadesGrid}>
+              {filteredShades.map((sn) => (
+                <TouchableOpacity
+                  key={sn}
+                  onPress={() => handleSelectShade(sn)}
+                  style={[
+                    styles.shadeChip,
+                    {
+                      backgroundColor: colors.inputBackground,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.shadeChipText, { color: colors.text }]}>#{sn}</Text>
+                </TouchableOpacity>
+              ))}
+              {filteredShades.length === 0 && (
+                <View style={{ width: '100%', padding: 24, alignItems: 'center' }}>
+                  <Text style={{ color: colors.textSecondary, marginBottom: 10 }}>No matching shade for "{shadeSearch}"</Text>
+                  {shadeSearch.trim() && (
+                    <TouchableOpacity
+                      onPress={() => handleSelectShade(shadeSearch.trim().replace(/^#/, ''))}
+                      style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
+                    >
+                      <Text style={{ color: '#fff', fontWeight: 'bold' }}>Use "#{shadeSearch.trim().replace(/^#/, '')}"</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1577,5 +1784,98 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 400,
     borderRadius: 8,
+  },
+  shadeInputWrapper: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  dropdownIconBtn: {
+    position: 'absolute',
+    right: 4,
+    top: 4,
+    bottom: 4,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(128, 90, 213, 0.12)',
+    borderRadius: 6,
+  },
+  machineBadgeLarge: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  shadeModalBox: {
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '85%',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  shadeModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  shadeModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shadeSearchInput: {
+    borderWidth: 1.5,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+  },
+  rangeTabBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginRight: 8,
+    justifyContent: 'center',
+  },
+  shadesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  shadeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    minWidth: 55,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shadeChipText: {
+    fontSize: 13,
+    fontWeight: 'bold',
   },
 });
