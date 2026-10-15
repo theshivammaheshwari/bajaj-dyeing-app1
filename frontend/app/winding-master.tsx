@@ -731,22 +731,24 @@ export default function WindingMaster() {
 
                 {/* Rows Header */}
                 <View style={[styles.rowHeader, { backgroundColor: colors.inputBackground }]}>
-                  <Text style={[styles.rowHeaderCol, { flex: 2, color: colors.text }]}>Shade Number (शेड)</Text>
-                  <Text style={[styles.rowHeaderCol, { flex: 1.2, textAlign: 'center', color: colors.text }]}>
-                    Springs Qty
+                  <Text style={[styles.rowHeaderCol, { flex: 1, color: colors.text }]}>Shade No. (#1–460)</Text>
+                  <Text style={[styles.rowHeaderCol, { width: 72, textAlign: 'center', color: colors.text }]}>
+                    Springs
                   </Text>
-                  <Text style={[styles.rowHeaderCol, { width: 40 }]}></Text>
+                  <View style={styles.spacerBtn} />
                 </View>
 
                 {/* Items List */}
                 {m1K800Items.map((item, idx) => (
                   <View key={item.id} style={styles.entryRow}>
-                    <View style={styles.shadeInputWrapper}>
+                    <View
+                      style={[
+                        styles.shadeCompoundBox,
+                        { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                      ]}
+                    >
                       <TextInput
-                        style={[
-                          styles.shadeInput,
-                          { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
-                        ]}
+                        style={[styles.shadeCompoundInput, { color: colors.text }]}
                         placeholder="Shade #1–#460"
                         placeholderTextColor={colors.textSecondary}
                         value={item.shade_number}
@@ -758,8 +760,15 @@ export default function WindingMaster() {
                         }}
                       />
                       <TouchableOpacity
-                        style={styles.dropdownIconBtn}
+                        style={[
+                          styles.shadeDropdownBtn,
+                          {
+                            backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                            borderLeftColor: colors.border,
+                          },
+                        ]}
                         onPress={() => openShadePicker('k800', idx)}
+                        activeOpacity={0.7}
                       >
                         <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
                       </TouchableOpacity>
@@ -834,22 +843,24 @@ export default function WindingMaster() {
 
                 {/* Rows Header */}
                 <View style={[styles.rowHeader, { backgroundColor: colors.inputBackground }]}>
-                  <Text style={[styles.rowHeaderCol, { flex: 2, color: colors.text }]}>Shade Number (शेड)</Text>
-                  <Text style={[styles.rowHeaderCol, { flex: 1.2, textAlign: 'center', color: colors.text }]}>
-                    Springs Qty
+                  <Text style={[styles.rowHeaderCol, { flex: 1, color: colors.text }]}>Shade No. (#1–460)</Text>
+                  <Text style={[styles.rowHeaderCol, { width: 72, textAlign: 'center', color: colors.text }]}>
+                    Springs
                   </Text>
-                  <Text style={[styles.rowHeaderCol, { width: 40 }]}></Text>
+                  <View style={styles.spacerBtn} />
                 </View>
 
                 {/* Items List */}
                 {m1DollyItems.map((item, idx) => (
                   <View key={item.id} style={styles.entryRow}>
-                    <View style={styles.shadeInputWrapper}>
+                    <View
+                      style={[
+                        styles.shadeCompoundBox,
+                        { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                      ]}
+                    >
                       <TextInput
-                        style={[
-                          styles.shadeInput,
-                          { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
-                        ]}
+                        style={[styles.shadeCompoundInput, { color: colors.text }]}
                         placeholder="Shade #1–#460"
                         placeholderTextColor={colors.textSecondary}
                         value={item.shade_number}
@@ -861,8 +872,15 @@ export default function WindingMaster() {
                         }}
                       />
                       <TouchableOpacity
-                        style={styles.dropdownIconBtn}
+                        style={[
+                          styles.shadeDropdownBtn,
+                          {
+                            backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                            borderLeftColor: colors.border,
+                          },
+                        ]}
                         onPress={() => openShadePicker('dolly', idx)}
+                        activeOpacity={0.7}
                       >
                         <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
                       </TouchableOpacity>
@@ -952,14 +970,32 @@ export default function WindingMaster() {
                         </Text>
                       </View>
 
+                      {/* Head Columns Header */}
+                      <View style={[styles.headRowHeader, { borderBottomColor: colors.border }]}>
+                        <Text style={[styles.headRowHeaderCol, { flex: 1, color: colors.textSecondary }]}>
+                          Shade No. (#1–460)
+                        </Text>
+                        <Text
+                          style={[
+                            styles.headRowHeaderCol,
+                            { width: 72, textAlign: 'center', color: colors.textSecondary },
+                          ]}
+                        >
+                          Springs
+                        </Text>
+                        <View style={styles.spacerBtn} />
+                      </View>
+
                       {head.items.map((it, iIdx) => (
-                        <View key={it.id} style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                          <View style={styles.shadeInputWrapper}>
+                        <View key={it.id} style={styles.entryRow}>
+                          <View
+                            style={[
+                              styles.shadeCompoundBox,
+                              { backgroundColor: colors.card, borderColor: colors.border },
+                            ]}
+                          >
                             <TextInput
-                              style={[
-                                styles.shadeInput,
-                                { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
-                              ]}
+                              style={[styles.shadeCompoundInput, { color: colors.text }]}
                               placeholder="Shade #1–#460"
                               placeholderTextColor={colors.textSecondary}
                               value={it.shade_number}
@@ -971,8 +1007,15 @@ export default function WindingMaster() {
                               }}
                             />
                             <TouchableOpacity
-                              style={styles.dropdownIconBtn}
+                              style={[
+                                styles.shadeDropdownBtn,
+                                {
+                                  backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                                  borderLeftColor: colors.border,
+                                },
+                              ]}
                               onPress={() => openShadePicker('head', iIdx, hIdx)}
+                              activeOpacity={0.7}
                             >
                               <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
                             </TouchableOpacity>
@@ -980,7 +1023,7 @@ export default function WindingMaster() {
                           <TextInput
                             style={[
                               styles.springInput,
-                              { backgroundColor: colors.card, color: colors.text, borderColor: colors.border, flex: 1.2 },
+                              { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
                             ]}
                             keyboardType="numeric"
                             placeholder="Springs"
@@ -992,13 +1035,15 @@ export default function WindingMaster() {
                               setM2Heads(updated);
                             }}
                           />
-                          {head.items.length > 1 && (
+                          {head.items.length > 1 ? (
                             <TouchableOpacity
                               onPress={() => removeHeadItem(hIdx, iIdx)}
                               style={styles.deleteRowBtn}
                             >
                               <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
                             </TouchableOpacity>
+                          ) : (
+                            <View style={styles.spacerBtn} />
                           )}
                         </View>
                       ))}
@@ -1560,43 +1605,84 @@ const styles = StyleSheet.create({
   },
   rowHeader: {
     flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 6,
     paddingHorizontal: 8,
     borderRadius: 6,
     marginBottom: 8,
+    gap: 8,
   },
   rowHeaderCol: {
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  headRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 4,
+    marginBottom: 6,
+    gap: 8,
+    borderBottomWidth: 1,
+  },
+  headRowHeaderCol: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   entryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginBottom: 8,
+    width: '100%',
   },
-  shadeInput: {
-    flex: 2,
-    borderWidth: 1,
+  shadeCompoundBox: {
+    flex: 1,
+    minWidth: 0,
+    height: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  shadeCompoundInput: {
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 0,
     fontSize: 14,
+    borderWidth: 0,
+  },
+  shadeDropdownBtn: {
+    width: 36,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderLeftWidth: 1,
   },
   springInput: {
-    flex: 1.2,
+    width: 72,
+    minWidth: 72,
+    maxWidth: 72,
+    height: 42,
     borderWidth: 1,
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 4,
     fontSize: 14,
+    fontWeight: 'bold',
     textAlign: 'center',
   },
   deleteRowBtn: {
-    width: 36,
-    height: 36,
+    width: 32,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  spacerBtn: {
+    width: 32,
+    height: 42,
   },
   addBtn: {
     borderWidth: 1,
@@ -1784,23 +1870,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 400,
     borderRadius: 8,
-  },
-  shadeInputWrapper: {
-    flex: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  dropdownIconBtn: {
-    position: 'absolute',
-    right: 4,
-    top: 4,
-    bottom: 4,
-    paddingHorizontal: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(128, 90, 213, 0.12)',
-    borderRadius: 6,
   },
   machineBadgeLarge: {
     width: 44,
