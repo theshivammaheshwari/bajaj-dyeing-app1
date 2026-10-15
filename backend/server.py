@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -6,6 +6,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
 import logging
+import base64
+import requests
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -2370,6 +2372,350 @@ async def delete_manual_stock(entry_id: str):
         return {"message": "Manual stock entry deleted successfully"}
     except HTTPException:
         raise
+# ==========================================
+# WINDING MASTER MODULE (MACHINES M1 TO M4)
+# ==========================================
+
+CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "315744234755357")
+CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "")
+
+def winding_task_helper(task) -> dict:
+    return {
+        "id": str(task["_id"]),
+        "date": task.get("date", ""),
+        "machine_id": task.get("machine_id", "M1"),
+        "operator_name": task.get("operator_name", ""),
+        "quality_name": task.get("quality_name", ""),
+        "status": task.get("status", "pending"),
+        "start_time": task.get("start_time"),
+        "end_time": task.get("end_time"),
+        "sections": task.get("sections", []),
+        "total_springs": safe_int(task.get("total_springs", 0)),
+        "total_kg": safe_float(task.get("total_kg", 0.0)),
+        "total_wages": safe_float(task.get("total_wages", 0.0)),
+        "parchi_image_url": task.get("parchi_image_url", ""),
+        "notes": task.get("notes", ""),
+        "is_extra_m2": task.get("is_extra_m2", False),
+        "created_at": task.get("created_at"),
+        "updated_at": task.get("updated_at")
+    }
+
+class WindingUploadRequest(BaseModel):
+    image_base64: str
+    filename: Optional[str] = "parchi.jpg"
+
+class WindingTaskCreate(BaseModel):
+    date: str
+    machine_id: str
+    operator_name: Optional[str] = ""
+    quality_name: Optional[str] = ""
+    status: Optional[str] = "pending"
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    sections: Optional[List[dict]] = []
+    total_springs: Optional[int] = 0
+    total_kg: Optional[float] = 0.0
+    total_wages: Optional[float] = 0.0
+    parchi_image_url: Optional[str] = ""
+    notes: Optional[str] = ""
+    is_extra_m2: Optional[bool] = False
+
+class WindingTaskUpdate(BaseModel):
+    date: Optional[str] = None
+    machine_id: Optional[str] = None
+    operator_name: Optional[str] = None
+    quality_name: Optional[str] = None
+    status: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    sections: Optional[List[dict]] = None
+    total_springs: Optional[int] = None
+    total_kg: Optional[float] = None
+    total_wages: Optional[float] = None
+    parchi_image_url: Optional[str] = None
+    notes: Optional[str] = None
+    is_extra_m2: Optional[bool] = None
+
+@api_router.get("/winding/machine-configs")
+async def get_winding_machine_configs():
+    """Return default machine settings and specifications for M1, M2, M3, M4"""
+    configs = {
+        "M1": {
+            "machine_id": "M1",
+            "name": "Machine 1 (M1)",
+            "default_operator": "Phool",
+            "allow_m2_run": True,
+            "sections": [
+                {
+                    "section_id": "k800",
+                    "title": "Kohinoor 800 mtr (K800)",
+                    "heads_count": 9,
+                    "standard_springs": 36,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 54.0,
+                    "rate_per_kg": 12.0,
+                    "standard_wages": 648.0,
+                    "can_adjust_springs": False
+                },
+                {
+                    "section_id": "dolly_gold",
+                    "title": "Dolly Gold",
+                    "heads_count": 4,
+                    "standard_springs": 8,
+                    "spring_options": [8, 10],
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 12.0,
+                    "rate_per_kg": 4.5,
+                    "standard_wages": 54.0,
+                    "can_adjust_springs": True
+                }
+            ]
+        },
+        "M2": {
+            "machine_id": "M2",
+            "name": "Machine 2 (M2)",
+            "default_operator": "Rajeev",
+            "quality_name": "Zip 135 mtr",
+            "heads_count": 4,
+            "springs_per_head": 4,
+            "standard_springs": 16,
+            "weight_per_spring": 1.5,
+            "standard_kg": 24.0,
+            "rate_per_kg": 40.0,
+            "standard_wages": 960.0
+        },
+        "M3": {
+            "machine_id": "M3",
+            "name": "Machine 3 (M3)",
+            "default_operator": "Operator 3",
+            "quality_name": "Zip 135 mtr",
+            "heads_count": 4,
+            "springs_per_head": 4,
+            "standard_springs": 16,
+            "weight_per_spring": 1.5,
+            "standard_kg": 24.0,
+            "rate_per_kg": 40.0,
+            "standard_wages": 960.0
+        },
+        "M4": {
+            "machine_id": "M4",
+            "name": "Machine 4 (M4)",
+            "default_operator": "Operator 4",
+            "quality_name": "Zip 135 mtr",
+            "heads_count": 4,
+            "springs_per_head": 4,
+            "standard_springs": 16,
+            "weight_per_spring": 1.5,
+            "standard_kg": 24.0,
+            "rate_per_kg": 40.0,
+            "standard_wages": 960.0
+        }
+    }
+    return configs
+
+@api_router.post("/winding/upload-parchi")
+async def upload_parchi_image(req: WindingUploadRequest):
+    """Upload task parchi image to Cloudinary (if configured) with safe fallback to MongoDB"""
+    try:
+        raw_b64 = req.image_base64
+        if not raw_b64:
+            raise HTTPException(status_code=400, detail="image_base64 is required")
+        
+        # 1. Try Cloudinary if cloud_name is set
+        c_cloud = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
+        c_key = os.environ.get("CLOUDINARY_API_KEY", "315744234755357").strip()
+        c_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+        
+        if c_cloud:
+            try:
+                c_url = f"https://api.cloudinary.com/v1_1/{c_cloud}/image/upload"
+                file_payload = raw_b64 if raw_b64.startswith("data:") else f"data:image/jpeg;base64,{raw_b64}"
+                
+                post_data = {
+                    "file": file_payload,
+                    "api_key": c_key,
+                }
+                
+                c_preset = os.environ.get("CLOUDINARY_UPLOAD_PRESET", "")
+                if c_preset:
+                    post_data["upload_preset"] = c_preset
+                elif c_secret:
+                    import hashlib, time
+                    ts = str(int(time.time()))
+                    post_data["timestamp"] = ts
+                    sig_str = f"timestamp={ts}{c_secret}"
+                    post_data["signature"] = hashlib.sha1(sig_str.encode('utf-8')).hexdigest()
+                else:
+                    post_data["upload_preset"] = "ml_default"
+                
+                resp = requests.post(c_url, data=post_data, timeout=15)
+                if resp.status_code == 200:
+                    c_res = resp.json()
+                    sec_url = c_res.get("secure_url") or c_res.get("url")
+                    if sec_url:
+                        return {"url": sec_url, "provider": "cloudinary"}
+            except Exception as ce:
+                logger.warning(f"Cloudinary upload failed ({ce}), storing in database fallback")
+        
+        # 2. Database Storage Fallback
+        clean_data = raw_b64
+        content_type = "image/jpeg"
+        if raw_b64.startswith("data:"):
+            header, clean_data = raw_b64.split(",", 1)
+            if ";" in header:
+                content_type = header.split(";")[0].replace("data:", "")
+        
+        doc = {
+            "filename": req.filename or "parchi.jpg",
+            "content_type": content_type,
+            "data": clean_data,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        res = await db.parchi_images.insert_one(doc)
+        img_id = str(res.inserted_id)
+        return {
+            "url": f"/api/winding/parchi-image/{img_id}",
+            "provider": "database",
+            "image_id": img_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading parchi image: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/winding/parchi-image/{image_id}")
+async def get_parchi_image(image_id: str):
+    """Retrieve parchi image from MongoDB storage"""
+    try:
+        doc = await db.parchi_images.find_one({"_id": ObjectId(image_id)})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Image not found")
+        img_data = doc.get("data", "")
+        content_type = doc.get("content_type", "image/jpeg")
+        binary_data = base64.b64decode(img_data)
+        return Response(content=binary_data, media_type=content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/winding/tasks")
+async def get_winding_tasks(date: Optional[str] = None, machine_id: Optional[str] = None, operator_name: Optional[str] = None):
+    """Get list of winding tasks with filters"""
+    try:
+        query = {}
+        if date:
+            query["date"] = date
+        if machine_id:
+            query["machine_id"] = machine_id.upper()
+        if operator_name:
+            query["operator_name"] = {"$regex": f"^{re.escape(operator_name)}$", "$options": "i"}
+            
+        tasks = await db.winding_tasks.find(query).sort("created_at", -1).to_list(1000)
+        return [winding_task_helper(t) for t in tasks]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/winding/tasks")
+async def create_winding_task(task: WindingTaskCreate):
+    """Create a new winding task"""
+    try:
+        now_iso = datetime.utcnow().isoformat()
+        doc = {
+            "date": task.date,
+            "machine_id": task.machine_id.upper(),
+            "operator_name": task.operator_name,
+            "quality_name": task.quality_name,
+            "status": task.status or "pending",
+            "start_time": task.start_time,
+            "end_time": task.end_time,
+            "sections": task.sections or [],
+            "total_springs": task.total_springs or 0,
+            "total_kg": task.total_kg or 0.0,
+            "total_wages": task.total_wages or 0.0,
+            "parchi_image_url": task.parchi_image_url or "",
+            "notes": task.notes or "",
+            "is_extra_m2": task.is_extra_m2 or False,
+            "created_at": now_iso,
+            "updated_at": now_iso
+        }
+        res = await db.winding_tasks.insert_one(doc)
+        created = await db.winding_tasks.find_one({"_id": res.inserted_id})
+        return winding_task_helper(created)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.put("/winding/tasks/{task_id}")
+async def update_winding_task(task_id: str, task: WindingTaskUpdate):
+    """Update an existing winding task"""
+    try:
+        update_data = {k: v for k, v in task.dict().items() if v is not None}
+        if "machine_id" in update_data:
+            update_data["machine_id"] = update_data["machine_id"].upper()
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        res = await db.winding_tasks.update_one(
+            {"_id": ObjectId(task_id)},
+            {"$set": update_data}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Task not found")
+        updated = await db.winding_tasks.find_one({"_id": ObjectId(task_id)})
+        return winding_task_helper(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.delete("/winding/tasks/{task_id}")
+async def delete_winding_task(task_id: str):
+    """Delete a winding task"""
+    try:
+        res = await db.winding_tasks.delete_one({"_id": ObjectId(task_id)})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"message": "Winding task deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/winding/daily-summary")
+async def get_winding_daily_summary(date: Optional[str] = None):
+    """Get aggregated daily winding production & wages summary for M1 to M4"""
+    try:
+        query = {}
+        if date:
+            query["date"] = date
+        tasks = await db.winding_tasks.find(query).to_list(5000)
+        
+        total_springs = sum(safe_int(t.get("total_springs", 0)) for t in tasks)
+        total_kg = round(sum(safe_float(t.get("total_kg", 0.0)) for t in tasks), 2)
+        total_wages = round(sum(safe_float(t.get("total_wages", 0.0)) for t in tasks), 2)
+        completed_tasks = len([t for t in tasks if t.get("status") == "completed"])
+        
+        machine_summary = {}
+        for m in ["M1", "M2", "M3", "M4"]:
+            m_tasks = [t for t in tasks if str(t.get("machine_id", "")).upper() == m]
+            machine_summary[m] = {
+                "tasks_count": len(m_tasks),
+                "total_springs": sum(safe_int(t.get("total_springs", 0)) for t in m_tasks),
+                "total_kg": round(sum(safe_float(t.get("total_kg", 0.0)) for t in m_tasks), 2),
+                "total_wages": round(sum(safe_float(t.get("total_wages", 0.0)) for t in m_tasks), 2),
+            }
+            
+        return {
+            "date": date or "all",
+            "total_tasks": len(tasks),
+            "completed_tasks": completed_tasks,
+            "total_springs": total_springs,
+            "total_kg": total_kg,
+            "total_wages": total_wages,
+            "machine_summary": machine_summary,
+            "tasks": [winding_task_helper(t) for t in tasks]
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

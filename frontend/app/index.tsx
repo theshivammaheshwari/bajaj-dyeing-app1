@@ -244,6 +244,14 @@ export default function Index() {
         </TouchableOpacity>
 
         <TouchableOpacity
+          style={[styles.quickActionButton, { backgroundColor: '#805AD5' }]}
+          onPress={() => router.push('/winding-master' as any)}
+        >
+          <Text style={styles.quickActionIcon}>🧵</Text>
+          <Text style={styles.quickActionText}>Winding Master</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
           style={[styles.quickActionButton, { backgroundColor: '#4A5568' }]}
           onPress={() => router.push('/settings')}
         >

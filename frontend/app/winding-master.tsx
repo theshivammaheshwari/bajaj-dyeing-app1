@@ -1,0 +1,1503 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  Modal,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Platform,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { useTheme } from '../context/ThemeContext';
+import { getBackendBaseUrl } from '../lib/api-base';
+
+const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
+
+interface ShadeItem {
+  id: string;
+  shade_number: string;
+  springs: number;
+}
+
+interface HeadData {
+  head_number: number;
+  items: ShadeItem[];
+}
+
+interface WindingTask {
+  id: string;
+  date: string;
+  machine_id: string;
+  operator_name: string;
+  quality_name: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  start_time?: string | null;
+  end_time?: string | null;
+  sections?: any[];
+  total_springs: number;
+  total_kg: number;
+  total_wages: number;
+  parchi_image_url?: string;
+  notes?: string;
+  is_extra_m2?: boolean;
+  created_at?: string;
+}
+
+export default function WindingMaster() {
+  const router = useRouter();
+  const { colors } = useTheme();
+
+  // Mode: 'worker' (Operator entry) vs 'register' (Master / Admin view)
+  const [activeTab, setActiveTab] = useState<'worker' | 'register'>('worker');
+
+  // Selected Machine & Date
+  const [selectedMachine, setSelectedMachine] = useState<'M1' | 'M2' | 'M3' | 'M4'>('M1');
+  const [taskDate, setTaskDate] = useState<string>(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
+  const [operatorName, setOperatorName] = useState<string>('Phool');
+
+  // M1 Operator Running M2 as well toggle
+  const [isExtraM2, setIsExtraM2] = useState<boolean>(false);
+
+  // Task Status & Timers
+  const [taskStatus, setTaskStatus] = useState<'pending' | 'in_progress' | 'completed'>('pending');
+  const [startTime, setStartTime] = useState<string | null>(null);
+  const [endTime, setEndTime] = useState<string | null>(null);
+
+  // M1 State
+  const [m1K800Items, setM1K800Items] = useState<ShadeItem[]>([
+    { id: '1', shade_number: '', springs: 0 },
+  ]);
+  const [m1DollyTarget, setM1DollyTarget] = useState<8 | 10>(8);
+  const [m1DollyItems, setM1DollyItems] = useState<ShadeItem[]>([
+    { id: '1', shade_number: '', springs: 0 },
+  ]);
+
+  // M2 / M3 / M4 State (4 heads, each up to 4 springs)
+  const [m2Heads, setM2Heads] = useState<HeadData[]>([
+    { head_number: 1, items: [{ id: '1-1', shade_number: '', springs: 4 }] },
+    { head_number: 2, items: [{ id: '2-1', shade_number: '', springs: 4 }] },
+    { head_number: 3, items: [{ id: '3-1', shade_number: '', springs: 4 }] },
+    { head_number: 4, items: [{ id: '4-1', shade_number: '', springs: 4 }] },
+  ]);
+
+  // Parchi Photo State
+  const [parchiBase64, setParchiBase64] = useState<string | null>(null);
+  const [parchiImageUrl, setParchiImageUrl] = useState<string>('');
+  const [uploadingImage, setUploadingImage] = useState<boolean>(false);
+
+  // Register View Data
+  const [tasksList, setTasksList] = useState<WindingTask[]>([]);
+  const [summaryData, setSummaryData] = useState<any>(null);
+  const [loadingTasks, setLoadingTasks] = useState<boolean>(false);
+  const [selectedPhotoModal, setSelectedPhotoModal] = useState<string | null>(null);
+
+  // Hidden File input ref for Web / Mobile Browser camera
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Set default operator name when machine changes
+  useEffect(() => {
+    if (selectedMachine === 'M1') {
+      setOperatorName('Phool');
+    } else if (selectedMachine === 'M2') {
+      setOperatorName('Rajeev');
+    } else if (selectedMachine === 'M3') {
+      setOperatorName('Operator 3');
+    } else if (selectedMachine === 'M4') {
+      setOperatorName('Operator 4');
+    }
+  }, [selectedMachine]);
+
+  // Load existing tasks on mount or date change
+  useEffect(() => {
+    if (activeTab === 'register') {
+      fetchTasks();
+    }
+  }, [activeTab, taskDate]);
+
+  const fetchTasks = async () => {
+    try {
+      setLoadingTasks(true);
+      const url = `${EXPO_PUBLIC_BACKEND_URL}/api/winding/daily-summary?date=${taskDate}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setSummaryData(data);
+        setTasksList(data.tasks || []);
+      }
+    } catch (e) {
+      console.error('Error fetching winding tasks:', e);
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  // Helper calculations for M1
+  const m1K800Springs = m1K800Items.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
+  const m1K800Kg = m1K800Springs * 1.5;
+  const m1K800Wages = m1K800Kg * 12.0;
+
+  const m1DollySprings = m1DollyItems.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
+  const m1DollyKg = m1DollySprings * 1.5;
+  const m1DollyWages = m1DollyKg * 4.5;
+
+  const m1TotalSprings = m1K800Springs + m1DollySprings;
+  const m1TotalKg = m1K800Kg + m1DollyKg;
+  const m1TotalWages = m1K800Wages + m1DollyWages;
+
+  // Helper calculations for M2, M3, M4
+  const m2TotalSprings = m2Heads.reduce(
+    (hAcc, head) => hAcc + head.items.reduce((iAcc, item) => iAcc + (Number(item.springs) || 0), 0),
+    0
+  );
+  const m2TotalKg = m2TotalSprings * 1.5;
+  const m2TotalWages = m2TotalKg * 40.0;
+
+  // Active Machine Totals
+  const currentTotalSprings = selectedMachine === 'M1' ? m1TotalSprings : m2TotalSprings;
+  const currentTotalKg = selectedMachine === 'M1' ? m1TotalKg : m2TotalKg;
+  const currentTotalWages = selectedMachine === 'M1' ? m1TotalWages : m2TotalWages;
+
+  // Photo Upload Handler (HTML5 / Mobile Camera & Gallery)
+  const handlePhotoSelect = (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const b64 = event.target?.result as string;
+      setParchiBase64(b64);
+      // Auto-upload to backend / Cloudinary
+      await uploadParchiPhoto(b64);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const uploadParchiPhoto = async (base64String: string) => {
+    try {
+      setUploadingImage(true);
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/upload-parchi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_base64: base64String,
+          filename: `parchi_${selectedMachine}_${taskDate}.jpg`,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setParchiImageUrl(data.url);
+      } else {
+        Alert.alert('Upload Error', 'Could not upload parchi image');
+      }
+    } catch (e) {
+      console.error('Error uploading photo:', e);
+      Alert.alert('Error', 'Image upload failed. Please try again.');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Start Task Handler
+  const handleStartTask = () => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setStartTime(timeStr);
+    setTaskStatus('in_progress');
+    Alert.alert('▶️ Task Started', `Winding task started at ${timeStr}`);
+  };
+
+  // Save / Complete Task Handler
+  const handleCompleteTask = async () => {
+    if (taskStatus !== 'in_progress' && !startTime) {
+      Alert.alert('Start Task First', 'Please press Start Task before completing!');
+      return;
+    }
+
+    const now = new Date();
+    const endTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setEndTime(endTimeStr);
+    setTaskStatus('completed');
+
+    // Prepare Sections payload
+    let sectionsPayload: any[] = [];
+    if (selectedMachine === 'M1') {
+      sectionsPayload = [
+        {
+          section_id: 'k800',
+          title: 'Kohinoor 800 mtr (K800)',
+          target_springs: 36,
+          rate_per_kg: 12.0,
+          weight_per_spring: 1.5,
+          items: m1K800Items.filter((i) => i.shade_number && i.springs > 0),
+          total_springs: m1K800Springs,
+          total_kg: m1K800Kg,
+          total_wages: m1K800Wages,
+        },
+        {
+          section_id: 'dolly_gold',
+          title: 'Dolly Gold',
+          target_springs: m1DollyTarget,
+          rate_per_kg: 4.5,
+          weight_per_spring: 1.5,
+          items: m1DollyItems.filter((i) => i.shade_number && i.springs > 0),
+          total_springs: m1DollySprings,
+          total_kg: m1DollyKg,
+          total_wages: m1DollyWages,
+        },
+      ];
+    } else {
+      sectionsPayload = [
+        {
+          section_id: 'zip135',
+          title: 'Zip 135 mtr',
+          target_springs: 16,
+          rate_per_kg: 40.0,
+          weight_per_spring: 1.5,
+          heads: m2Heads,
+          total_springs: m2TotalSprings,
+          total_kg: m2TotalKg,
+          total_wages: m2TotalWages,
+        },
+      ];
+    }
+
+    const payload = {
+      date: taskDate,
+      machine_id: selectedMachine,
+      operator_name: operatorName,
+      quality_name: selectedMachine === 'M1' ? 'K800 + Dolly Gold' : 'Zip 135 mtr',
+      status: 'completed',
+      start_time: startTime,
+      end_time: endTimeStr,
+      sections: sectionsPayload,
+      total_springs: currentTotalSprings,
+      total_kg: currentTotalKg,
+      total_wages: currentTotalWages,
+      parchi_image_url: parchiImageUrl,
+      is_extra_m2: isExtraM2,
+    };
+
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        Alert.alert(
+          '🎉 Task Completed & Saved!',
+          `Operator: ${operatorName}\nMachine: ${selectedMachine}\nTotal Springs: ${currentTotalSprings}\nTotal Weight: ${currentTotalKg.toFixed(
+            1
+          )} KG\nTotal Wages: ₹${currentTotalWages.toFixed(2)}`
+        );
+      } else {
+        Alert.alert('Error', 'Failed to save winding task');
+      }
+    } catch (e) {
+      console.error('Error completing task:', e);
+      Alert.alert('Error', 'Network error while saving task');
+    }
+  };
+
+  // Helper to add row in M1 K800
+  const addM1K800Row = () => {
+    setM1K800Items([...m1K800Items, { id: Date.now().toString(), shade_number: '', springs: 0 }]);
+  };
+
+  const removeM1K800Row = (index: number) => {
+    if (m1K800Items.length <= 1) return;
+    const updated = [...m1K800Items];
+    updated.splice(index, 1);
+    setM1K800Items(updated);
+  };
+
+  // Helper to add row in M1 Dolly Gold
+  const addM1DollyRow = () => {
+    setM1DollyItems([...m1DollyItems, { id: Date.now().toString(), shade_number: '', springs: 0 }]);
+  };
+
+  const removeM1DollyRow = (index: number) => {
+    if (m1DollyItems.length <= 1) return;
+    const updated = [...m1DollyItems];
+    updated.splice(index, 1);
+    setM1DollyItems(updated);
+  };
+
+  // Helper to add shade in a Head for M2/M3/M4
+  const addHeadItem = (headIdx: number) => {
+    const updated = [...m2Heads];
+    updated[headIdx].items.push({ id: Date.now().toString(), shade_number: '', springs: 1 });
+    setM2Heads(updated);
+  };
+
+  const removeHeadItem = (headIdx: number, itemIdx: number) => {
+    if (m2Heads[headIdx].items.length <= 1) return;
+    const updated = [...m2Heads];
+    updated[headIdx].items.splice(itemIdx, 1);
+    setM2Heads(updated);
+  };
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Hidden File Input for Mobile & Web Camera Capture */}
+      {Platform.OS === 'web' && (
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          ref={fileInputRef as any}
+          style={{ display: 'none' }}
+          onChange={handlePhotoSelect}
+        />
+      )}
+
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>🧵 Winding Master</Text>
+            <View style={[styles.badge, { backgroundColor: '#805AD5' }]}>
+              <Text style={styles.badgeText}>M1–M4</Text>
+            </View>
+          </View>
+          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
+            वाइंडिंग ऑपरेटर टास्क & पर्ची रिकॉर्ड
+          </Text>
+        </View>
+      </View>
+
+      {/* Top Tab Mode Selector */}
+      <View style={[styles.tabBar, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === 'worker' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
+          onPress={() => setActiveTab('worker')}
+        >
+          <Text style={[styles.tabBtnText, activeTab === 'worker' ? { color: '#fff' } : { color: colors.text }]}>
+            👷 Operator Task Entry
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabBtn, activeTab === 'register' && [styles.tabBtnActive, { backgroundColor: colors.primary }]]}
+          onPress={() => setActiveTab('register')}
+        >
+          <Text style={[styles.tabBtnText, activeTab === 'register' ? { color: '#fff' } : { color: colors.text }]}>
+            📋 Master Daily Register
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'worker' ? (
+        <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
+          {/* Machine Selector Buttons */}
+          <View style={styles.sectionCard}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>🏭 Select Machine (मशीन चुनें)</Text>
+            <View style={styles.machineRow}>
+              {(['M1', 'M2', 'M3', 'M4'] as const).map((m) => {
+                const isSelected = selectedMachine === m;
+                return (
+                  <TouchableOpacity
+                    key={m}
+                    style={[
+                      styles.machineBtn,
+                      { borderColor: colors.border, backgroundColor: colors.inputBackground },
+                      isSelected && { backgroundColor: colors.primary, borderColor: colors.primary },
+                    ]}
+                    onPress={() => setSelectedMachine(m)}
+                  >
+                    <Text style={[styles.machineBtnTitle, isSelected ? { color: '#fff' } : { color: colors.text }]}>
+                      {m}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.machineBtnSub,
+                        isSelected ? { color: 'rgba(255,255,255,0.85)' } : { color: colors.textSecondary },
+                      ]}
+                    >
+                      {m === 'M1' ? 'K800 + Dolly' : 'Zip 135m'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Operator & Date Row */}
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Operator Name (ऑपरेटर)</Text>
+                <TextInput
+                  style={[styles.textInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                  value={operatorName}
+                  onChangeText={setOperatorName}
+                  placeholder="Operator name"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>Task Date (तारीख)</Text>
+                <TextInput
+                  style={[styles.textInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                  value={taskDate}
+                  onChangeText={setTaskDate}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
+
+            {/* Special M1 Option: Run M2 as well */}
+            {selectedMachine === 'M1' && (
+              <TouchableOpacity
+                onPress={() => setIsExtraM2(!isExtraM2)}
+                style={[
+                  styles.extraM2Toggle,
+                  {
+                    backgroundColor: isExtraM2 ? '#FEFCBF' : colors.inputBackground,
+                    borderColor: isExtraM2 ? '#D69E2E' : colors.border,
+                  },
+                ]}
+              >
+                <Text style={{ fontSize: 18 }}>{isExtraM2 ? '☑️' : '⬜'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 14, color: isExtraM2 ? '#744210' : colors.text }}>
+                    Run Machine M-2 Also (M1 ऑपरेटर M-2 भी चला रहा है)
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                    Tick this if M1 worker is operating M2 machine today
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Start / Complete Task Timer Card */}
+          <View style={[styles.timerCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.timerHeader}>
+              <View>
+                <Text style={[styles.timerTitle, { color: colors.text }]}>⏱️ Task Timer & Status</Text>
+                <Text style={[styles.timerSub, { color: colors.textSecondary }]}>
+                  {taskStatus === 'in_progress'
+                    ? `🟢 Task in Progress (Started: ${startTime})`
+                    : taskStatus === 'completed'
+                    ? `✅ Task Completed (Start: ${startTime} • End: ${endTime})`
+                    : '⚪ Not Started Yet (शुरू नहीं हुआ)'}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  taskStatus === 'in_progress'
+                    ? { backgroundColor: '#C6F6D5' }
+                    : taskStatus === 'completed'
+                    ? { backgroundColor: '#BEE3F8' }
+                    : { backgroundColor: colors.inputBackground },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    taskStatus === 'in_progress'
+                      ? { color: '#22543D' }
+                      : taskStatus === 'completed'
+                      ? { color: '#2B6CB0' }
+                      : { color: colors.textSecondary },
+                  ]}
+                >
+                  {taskStatus.toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+              <TouchableOpacity
+                onPress={handleStartTask}
+                disabled={taskStatus === 'in_progress' || taskStatus === 'completed'}
+                style={[
+                  styles.actionBtn,
+                  { backgroundColor: taskStatus === 'pending' ? '#38A169' : '#A0AEC0' },
+                ]}
+              >
+                <Text style={styles.actionBtnText}>▶️ Start Task</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleCompleteTask}
+                disabled={taskStatus !== 'in_progress'}
+                style={[
+                  styles.actionBtn,
+                  { backgroundColor: taskStatus === 'in_progress' ? '#3182CE' : '#A0AEC0' },
+                ]}
+              >
+                <Text style={styles.actionBtnText}>⏹️ Complete Task</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* ============================================================== */}
+          {/* MACHINE 1 FORMAT: K800 + Dolly Gold                            */}
+          {/* ============================================================== */}
+          {selectedMachine === 'M1' ? (
+            <View>
+              {/* Section 1: Kohinoor 800 mtr (K800) */}
+              <View style={[styles.formatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.formatHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.formatTitle, { color: colors.text }]}>
+                      🧵 1. Kohinoor 800 mtr (K800)
+                    </Text>
+                    <Text style={[styles.formatSubtitle, { color: colors.textSecondary }]}>
+                      9 Heads • Standard: 36 Springs (54 KG) • Rate: ₹12.00 / KG
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.springsCountBadge,
+                      m1K800Springs === 36 ? { backgroundColor: '#C6F6D5' } : { backgroundColor: '#FEEBC8' },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.springsCountText,
+                        m1K800Springs === 36 ? { color: '#22543D' } : { color: '#744210' },
+                      ]}
+                    >
+                      {m1K800Springs} / 36 Springs
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Rows Header */}
+                <View style={[styles.rowHeader, { backgroundColor: colors.inputBackground }]}>
+                  <Text style={[styles.rowHeaderCol, { flex: 2, color: colors.text }]}>Shade Number (शेड)</Text>
+                  <Text style={[styles.rowHeaderCol, { flex: 1.2, textAlign: 'center', color: colors.text }]}>
+                    Springs Qty
+                  </Text>
+                  <Text style={[styles.rowHeaderCol, { width: 40 }]}></Text>
+                </View>
+
+                {/* Items List */}
+                {m1K800Items.map((item, idx) => (
+                  <View key={item.id} style={styles.entryRow}>
+                    <TextInput
+                      style={[
+                        styles.shadeInput,
+                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                      ]}
+                      placeholder="e.g. 136, 1310"
+                      placeholderTextColor={colors.textSecondary}
+                      value={item.shade_number}
+                      onChangeText={(val) => {
+                        const updated = [...m1K800Items];
+                        updated[idx].shade_number = val;
+                        setM1K800Items(updated);
+                      }}
+                    />
+                    <TextInput
+                      style={[
+                        styles.springInput,
+                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                      ]}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={colors.textSecondary}
+                      value={item.springs ? item.springs.toString() : ''}
+                      onChangeText={(val) => {
+                        const updated = [...m1K800Items];
+                        updated[idx].springs = parseInt(val) || 0;
+                        setM1K800Items(updated);
+                      }}
+                    />
+                    <TouchableOpacity onPress={() => removeM1K800Row(idx)} style={styles.deleteRowBtn}>
+                      <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                <TouchableOpacity onPress={addM1K800Row} style={[styles.addBtn, { borderColor: colors.primary }]}>
+                  <Text style={[styles.addBtnText, { color: colors.primary }]}>+ Add Shade (और शेड जोड़ें)</Text>
+                </TouchableOpacity>
+
+                <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground }]}>
+                  <Text style={[styles.summaryText, { color: colors.text }]}>
+                    Weight: <Text style={{ fontWeight: 'bold' }}>{m1K800Kg.toFixed(1)} KG</Text>
+                  </Text>
+                  <Text style={[styles.summaryText, { color: colors.primary }]}>
+                    Wages: <Text style={{ fontWeight: 'bold' }}>₹{m1K800Wages.toFixed(2)}</Text>
+                  </Text>
+                </View>
+              </View>
+
+              {/* Section 2: Dolly Gold */}
+              <View style={[styles.formatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.formatHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.formatTitle, { color: colors.text }]}>🧵 2. Dolly Gold</Text>
+                    <Text style={[styles.formatSubtitle, { color: colors.textSecondary }]}>
+                      4 Heads • Rate: ₹4.50 / KG • (8 or 10 Springs)
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    <TouchableOpacity
+                      onPress={() => setM1DollyTarget(8)}
+                      style={[
+                        styles.dollyChoiceBtn,
+                        m1DollyTarget === 8 && { backgroundColor: colors.primary, borderColor: colors.primary },
+                      ]}
+                    >
+                      <Text style={[styles.dollyChoiceText, m1DollyTarget === 8 && { color: '#fff' }]}>8 Sp (12kg)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setM1DollyTarget(10)}
+                      style={[
+                        styles.dollyChoiceBtn,
+                        m1DollyTarget === 10 && { backgroundColor: colors.primary, borderColor: colors.primary },
+                      ]}
+                    >
+                      <Text style={[styles.dollyChoiceText, m1DollyTarget === 10 && { color: '#fff' }]}>
+                        10 Sp (15kg)
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Rows Header */}
+                <View style={[styles.rowHeader, { backgroundColor: colors.inputBackground }]}>
+                  <Text style={[styles.rowHeaderCol, { flex: 2, color: colors.text }]}>Shade Number (शेड)</Text>
+                  <Text style={[styles.rowHeaderCol, { flex: 1.2, textAlign: 'center', color: colors.text }]}>
+                    Springs Qty
+                  </Text>
+                  <Text style={[styles.rowHeaderCol, { width: 40 }]}></Text>
+                </View>
+
+                {/* Items List */}
+                {m1DollyItems.map((item, idx) => (
+                  <View key={item.id} style={styles.entryRow}>
+                    <TextInput
+                      style={[
+                        styles.shadeInput,
+                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                      ]}
+                      placeholder="e.g. 104, 381"
+                      placeholderTextColor={colors.textSecondary}
+                      value={item.shade_number}
+                      onChangeText={(val) => {
+                        const updated = [...m1DollyItems];
+                        updated[idx].shade_number = val;
+                        setM1DollyItems(updated);
+                      }}
+                    />
+                    <TextInput
+                      style={[
+                        styles.springInput,
+                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                      ]}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={colors.textSecondary}
+                      value={item.springs ? item.springs.toString() : ''}
+                      onChangeText={(val) => {
+                        const updated = [...m1DollyItems];
+                        updated[idx].springs = parseInt(val) || 0;
+                        setM1DollyItems(updated);
+                      }}
+                    />
+                    <TouchableOpacity onPress={() => removeM1DollyRow(idx)} style={styles.deleteRowBtn}>
+                      <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                <TouchableOpacity onPress={addM1DollyRow} style={[styles.addBtn, { borderColor: colors.primary }]}>
+                  <Text style={[styles.addBtnText, { color: colors.primary }]}>+ Add Shade (और शेड जोड़ें)</Text>
+                </TouchableOpacity>
+
+                <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground }]}>
+                  <Text style={[styles.summaryText, { color: colors.text }]}>
+                    Springs: {m1DollySprings} / {m1DollyTarget} • Weight: {m1DollyKg.toFixed(1)} KG
+                  </Text>
+                  <Text style={[styles.summaryText, { color: colors.primary }]}>
+                    Wages: ₹{m1DollyWages.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            /* ============================================================== */
+            /* MACHINES M2, M3, M4 FORMAT: Zip 135 mtr (4 Heads × 4 Springs)   */
+            /* ============================================================== */
+            <View>
+              <View style={[styles.formatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={styles.formatHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.formatTitle, { color: colors.text }]}>
+                      ⚡ {selectedMachine} — Zip 135 mtr
+                    </Text>
+                    <Text style={[styles.formatSubtitle, { color: colors.textSecondary }]}>
+                      4 Heads • 4 Springs / Head = 16 Springs (24 KG) • Rate: ₹40.00 / KG
+                    </Text>
+                  </View>
+                  <View style={[styles.springsCountBadge, { backgroundColor: '#FAF5FF', borderColor: '#D6BCFA' }]}>
+                    <Text style={[styles.springsCountText, { color: '#6B46C1' }]}>
+                      {m2TotalSprings} / 16 Springs
+                    </Text>
+                  </View>
+                </View>
+
+                {/* 4 Heads Grid */}
+                {m2Heads.map((head, hIdx) => {
+                  const headSum = head.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
+                  const isFull = headSum === 4;
+
+                  return (
+                    <View
+                      key={head.head_number}
+                      style={[
+                        styles.headCard,
+                        { backgroundColor: colors.inputBackground, borderColor: isFull ? '#38A169' : colors.border },
+                      ]}
+                    >
+                      <View style={styles.headCardHeader}>
+                        <Text style={[styles.headCardTitle, { color: colors.text }]}>
+                          📍 {head.head_number}
+                          {head.head_number === 1 ? 'st' : head.head_number === 2 ? 'nd' : head.head_number === 3 ? 'rd' : 'th'} Head
+                        </Text>
+                        <Text
+                          style={[
+                            styles.headSumBadge,
+                            isFull ? { color: '#38A169', fontWeight: 'bold' } : { color: colors.textSecondary },
+                          ]}
+                        >
+                          {headSum} / 4 Springs {isFull ? '✅' : ''}
+                        </Text>
+                      </View>
+
+                      {head.items.map((it, iIdx) => (
+                        <View key={it.id} style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                          <TextInput
+                            style={[
+                              styles.shadeInput,
+                              { backgroundColor: colors.card, color: colors.text, borderColor: colors.border, flex: 2 },
+                            ]}
+                            placeholder={`Shade (e.g. ${hIdx === 0 ? '149' : hIdx === 1 ? '211' : '212'})`}
+                            placeholderTextColor={colors.textSecondary}
+                            value={it.shade_number}
+                            onChangeText={(val) => {
+                              const updated = [...m2Heads];
+                              updated[hIdx].items[iIdx].shade_number = val;
+                              setM2Heads(updated);
+                            }}
+                          />
+                          <TextInput
+                            style={[
+                              styles.springInput,
+                              { backgroundColor: colors.card, color: colors.text, borderColor: colors.border, flex: 1.2 },
+                            ]}
+                            keyboardType="numeric"
+                            placeholder="Springs"
+                            placeholderTextColor={colors.textSecondary}
+                            value={it.springs ? it.springs.toString() : ''}
+                            onChangeText={(val) => {
+                              const updated = [...m2Heads];
+                              updated[hIdx].items[iIdx].springs = parseInt(val) || 0;
+                              setM2Heads(updated);
+                            }}
+                          />
+                          {head.items.length > 1 && (
+                            <TouchableOpacity
+                              onPress={() => removeHeadItem(hIdx, iIdx)}
+                              style={styles.deleteRowBtn}
+                            >
+                              <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      ))}
+
+                      {headSum < 4 && (
+                        <TouchableOpacity
+                          onPress={() => addHeadItem(hIdx)}
+                          style={{ marginTop: 8, alignSelf: 'flex-start' }}
+                        >
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                            + Split Another Shade on this Head
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })}
+
+                <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground, marginTop: 14 }]}>
+                  <Text style={[styles.summaryText, { color: colors.text }]}>
+                    Weight: <Text style={{ fontWeight: 'bold' }}>{m2TotalKg.toFixed(1)} KG</Text>
+                  </Text>
+                  <Text style={[styles.summaryText, { color: colors.primary }]}>
+                    Wages: <Text style={{ fontWeight: 'bold' }}>₹{m2TotalWages.toFixed(2)}</Text>
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* ============================================================== */}
+          {/* PARCHI PHOTO UPLOAD SECTION                                     */}
+          {/* ============================================================== */}
+          <View style={[styles.photoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              📷 Task Parchi Photo (पर्ची की फोटो अपलोड करें)
+            </Text>
+            <Text style={[styles.formatSubtitle, { color: colors.textSecondary, marginBottom: 12 }]}>
+              Worker slip / parchi ki photo camera se kheench kar upload karein
+            </Text>
+
+            {parchiImageUrl || parchiBase64 ? (
+              <View style={styles.imagePreviewContainer}>
+                <Image
+                  source={{ uri: parchiImageUrl || parchiBase64 || '' }}
+                  style={styles.parchiThumb}
+                  resizeMode="cover"
+                />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ color: '#38A169', fontWeight: 'bold', fontSize: 14 }}>
+                    ✅ Parchi Uploaded!
+                  </Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+                    {uploadingImage ? 'Uploading to server...' : 'Uploaded successfully.'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (Platform.OS === 'web' && fileInputRef.current) {
+                        fileInputRef.current.click();
+                      }
+                    }}
+                    style={[styles.reuploadBtn, { borderColor: colors.primary }]}
+                  >
+                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                      🔄 Re-take Photo
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity
+                onPress={() => {
+                  if (Platform.OS === 'web' && fileInputRef.current) {
+                    fileInputRef.current.click();
+                  } else {
+                    Alert.alert('Upload', 'Please select image file');
+                  }
+                }}
+                disabled={uploadingImage}
+                style={[styles.uploadBox, { backgroundColor: colors.inputBackground, borderColor: colors.primary }]}
+              >
+                {uploadingImage ? (
+                  <ActivityIndicator size="small" color={colors.primary} />
+                ) : (
+                  <>
+                    <Text style={{ fontSize: 32, marginBottom: 6 }}>📸</Text>
+                    <Text style={[styles.uploadBoxText, { color: colors.primary }]}>
+                      Take Photo with Camera / Select Slip
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 4 }}>
+                      Directly uploads to Cloudinary / Storage
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Sticky Total Bar */}
+          <View style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+            <View>
+              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Total Production</Text>
+              <Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 16 }}>
+                {currentTotalSprings} Springs ({currentTotalKg.toFixed(1)} KG)
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Total Wages (मजदूरी)</Text>
+              <Text style={{ color: '#38A169', fontWeight: 'bold', fontSize: 20 }}>
+                ₹{currentTotalWages.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+      ) : (
+        /* ============================================================== */
+        /* MASTER REGISTER / ALL TASKS VIEW                                */
+        /* ============================================================== */
+        <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
+          {/* Summary Dashboard Cards */}
+          <View style={styles.summaryGrid}>
+            <View style={[styles.dashCard, { backgroundColor: '#EBF8FF', borderColor: '#BEE3F8' }]}>
+              <Text style={{ color: '#2B6CB0', fontSize: 12, fontWeight: 'bold' }}>TOTAL PRODUCTION</Text>
+              <Text style={{ color: '#2B6CB0', fontSize: 22, fontWeight: 'bold', marginTop: 4 }}>
+                {summaryData?.total_springs || 0} Springs
+              </Text>
+              <Text style={{ color: '#2B6CB0', fontSize: 12 }}>{summaryData?.total_kg || 0} KG</Text>
+            </View>
+
+            <View style={[styles.dashCard, { backgroundColor: '#F0FFF4', borderColor: '#C6F6D5' }]}>
+              <Text style={{ color: '#276749', fontSize: 12, fontWeight: 'bold' }}>TOTAL WAGES (₹)</Text>
+              <Text style={{ color: '#276749', fontSize: 22, fontWeight: 'bold', marginTop: 4 }}>
+                ₹{summaryData?.total_wages || 0}
+              </Text>
+              <Text style={{ color: '#276749', fontSize: 12 }}>
+                {summaryData?.completed_tasks || 0} Completed Tasks
+              </Text>
+            </View>
+          </View>
+
+          {/* Machine Breakdown */}
+          <View style={[styles.sectionCard, { marginTop: 12 }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 10 }]}>
+              📊 Machine Breakdown ({taskDate})
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {['M1', 'M2', 'M3', 'M4'].map((m) => {
+                const s = summaryData?.machine_summary?.[m] || { total_springs: 0, total_wages: 0 };
+                return (
+                  <View
+                    key={m}
+                    style={[styles.mBreakdownCard, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}
+                  >
+                    <Text style={{ fontWeight: 'bold', color: colors.primary, fontSize: 15 }}>{m}</Text>
+                    <Text style={{ fontSize: 13, color: colors.text, marginTop: 4, fontWeight: '600' }}>
+                      {s.total_springs} Sp
+                    </Text>
+                    <Text style={{ fontSize: 11, color: '#38A169', fontWeight: 'bold' }}>
+                      ₹{s.total_wages}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Tasks List */}
+          <View style={{ marginTop: 16 }}>
+            <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 10 }]}>
+              📝 Recorded Tasks ({tasksList.length})
+            </Text>
+
+            {loadingTasks ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 20 }} />
+            ) : tasksList.length === 0 ? (
+              <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={{ fontSize: 32, marginBottom: 8 }}>🔍</Text>
+                <Text style={[styles.emptyTitle, { color: colors.text }]}>No Winding Tasks Found</Text>
+                <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+                  No tasks recorded for {taskDate} yet. Use Operator Task Entry tab to record tasks.
+                </Text>
+              </View>
+            ) : (
+              tasksList.map((t) => (
+                <View
+                  key={t.id}
+                  style={[styles.taskItemCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                >
+                  <View style={styles.taskItemHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={[styles.machineTag, { backgroundColor: colors.primary }]}>
+                        <Text style={styles.machineTagText}>{t.machine_id}</Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.taskOperator, { color: colors.text }]}>
+                          {t.operator_name || 'Operator'}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                          {t.quality_name} • {t.date}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#38A169' }}>
+                        ₹{t.total_wages.toFixed(2)}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                        {t.total_springs} Sp ({t.total_kg} KG)
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Timings */}
+                  {(t.start_time || t.end_time) && (
+                    <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 8 }}>
+                      ⏱️ Time: {t.start_time || 'N/A'} ➡️ {t.end_time || 'N/A'}
+                    </Text>
+                  )}
+
+                  {/* Parchi Photo View Button */}
+                  {t.parchi_image_url ? (
+                    <TouchableOpacity
+                      onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
+                      style={[styles.viewParchiBtn, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}
+                    >
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                        📷 View Uploaded Parchi Photo (पर्ची देखें)
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* Photo Modal */}
+      <Modal visible={!!selectedPhotoModal} transparent={true} animationType="fade">
+        <View style={styles.photoModalOverlay}>
+          <View style={[styles.photoModalContent, { backgroundColor: colors.card }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={{ fontWeight: 'bold', fontSize: 16, color: colors.text }}>
+                📜 Winding Task Parchi
+              </Text>
+              <TouchableOpacity onPress={() => setSelectedPhotoModal(null)}>
+                <Text style={{ fontSize: 20, color: colors.text, fontWeight: 'bold' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {selectedPhotoModal && (
+              <Image
+                source={{
+                  uri: selectedPhotoModal.startsWith('http')
+                    ? selectedPhotoModal
+                    : `${EXPO_PUBLIC_BACKEND_URL}${selectedPhotoModal}`,
+                }}
+                style={styles.fullParchiImage}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  backText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  headerSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  badge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    padding: 6,
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tabBtnText: {
+    fontWeight: 'bold',
+    fontSize: 13,
+  },
+  scrollContent: {
+    flex: 1,
+    padding: 16,
+  },
+  sectionCard: {
+    borderRadius: 12,
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  machineRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  machineBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+  },
+  machineBtnTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  machineBtnSub: {
+    fontSize: 10,
+    marginTop: 2,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+  },
+  extraM2Toggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  timerCard: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  timerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  timerTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  timerSub: {
+    fontSize: 12,
+    marginTop: 3,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  actionBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+  },
+  formatCard: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  formatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  formatTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  formatSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  springsCountBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  springsCountText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  rowHeader: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  rowHeaderCol: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  entryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  shadeInput: {
+    flex: 2,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+  },
+  springInput: {
+    flex: 1.2,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  deleteRowBtn: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBtn: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  addBtnText: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  sectionSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  summaryText: {
+    fontSize: 13,
+  },
+  dollyChoiceBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#CBD5E0',
+  },
+  dollyChoiceText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#4A5568',
+  },
+  headCard: {
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  headCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headCardTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  headSumBadge: {
+    fontSize: 12,
+  },
+  photoCard: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  uploadBox: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadBoxText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  imagePreviewContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  parchiThumb: {
+    width: 90,
+    height: 90,
+    borderRadius: 8,
+  },
+  reuploadBtn: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dashCard: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  mBreakdownCard: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  emptyBox: {
+    padding: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  emptySub: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  taskItemCard: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  taskItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  machineTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  machineTagText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
+  taskOperator: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  viewParchiBtn: {
+    marginTop: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  photoModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  photoModalContent: {
+    width: '100%',
+    maxWidth: 500,
+    maxHeight: '80%',
+    borderRadius: 14,
+    padding: 16,
+  },
+  fullParchiImage: {
+    width: '100%',
+    height: 400,
+    borderRadius: 8,
+  },
+});
