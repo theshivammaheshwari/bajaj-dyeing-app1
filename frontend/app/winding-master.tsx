@@ -85,6 +85,8 @@ export default function WindingMaster() {
   } | null>(null);
   const [shadeSearch, setShadeSearch] = useState<string>('');
   const [rangeTab, setRangeTab] = useState<'all' | '1-100' | '101-200' | '201-300' | '301-400' | '401-460'>('all');
+  const [multiSelectMode, setMultiSelectMode] = useState<boolean>(false);
+  const [selectedShadesList, setSelectedShadesList] = useState<string[]>([]);
 
   // M1 Operator Running M2 as well toggle
   const [isExtraM2, setIsExtraM2] = useState<boolean>(false);
@@ -229,10 +231,84 @@ export default function WindingMaster() {
     setShadeTarget({ section, rowIdx, headIdx });
     setShadeSearch('');
     setRangeTab('all');
+    setMultiSelectMode(false);
+    setSelectedShadesList([]);
     setShadePickerVisible(true);
   };
 
-  // Handle selecting a shade from dropdown modal
+  // Toggle multi-select shade
+  const toggleMultiShade = (shadeNum: string) => {
+    if (selectedShadesList.includes(shadeNum)) {
+      setSelectedShadesList(selectedShadesList.filter((s) => s !== shadeNum));
+    } else {
+      setSelectedShadesList([...selectedShadesList, shadeNum]);
+    }
+  };
+
+  // Apply multi-selected shades to target section / head
+  const handleApplyMultiShades = () => {
+    if (!shadeTarget || selectedShadesList.length === 0) {
+      setShadePickerVisible(false);
+      return;
+    }
+
+    if (shadeTarget.section === 'head' && shadeTarget.headIdx !== undefined) {
+      const hIdx = shadeTarget.headIdx;
+      const updated = [...m2Heads];
+      const n = selectedShadesList.length;
+      const perSpring = Math.max(1, Math.floor(4 / n));
+
+      const newItems: ShadeItem[] = selectedShadesList.map((sn, idx) => {
+        let springs = perSpring;
+        if (idx === n - 1 && n <= 4) {
+          springs = 4 - perSpring * (n - 1);
+        }
+        return {
+          id: `${Date.now()}-${idx}`,
+          shade_number: sn,
+          springs: springs > 0 ? springs : 1,
+        };
+      });
+
+      updated[hIdx].items = newItems;
+      setM2Heads(updated);
+    } else if (shadeTarget.section === 'k800') {
+      const updated = [...m1K800Items];
+      selectedShadesList.forEach((sn, idx) => {
+        if (idx === 0) {
+          updated[shadeTarget.rowIdx].shade_number = sn;
+        } else {
+          updated.push({
+            id: `${Date.now()}-${idx}`,
+            shade_number: sn,
+            springs: 0,
+          });
+        }
+      });
+      setM1K800Items(updated);
+    } else if (shadeTarget.section === 'dolly') {
+      const updated = [...m1DollyItems];
+      selectedShadesList.forEach((sn, idx) => {
+        if (idx === 0) {
+          updated[shadeTarget.rowIdx].shade_number = sn;
+        } else {
+          updated.push({
+            id: `${Date.now()}-${idx}`,
+            shade_number: sn,
+            springs: 0,
+          });
+        }
+      });
+      setM1DollyItems(updated);
+    }
+
+    setShadePickerVisible(false);
+    setShadeTarget(null);
+    setSelectedShadesList([]);
+    setMultiSelectMode(false);
+  };
+
+  // Handle selecting a single shade from dropdown modal
   const handleSelectShade = (shadeNum: string) => {
     if (!shadeTarget) return;
     if (shadeTarget.section === 'k800') {
@@ -488,7 +564,14 @@ export default function WindingMaster() {
   // Helper to add shade in a Head for M2/M3/M4
   const addHeadItem = (headIdx: number) => {
     const updated = [...m2Heads];
-    updated[headIdx].items.push({ id: Date.now().toString(), shade_number: '', springs: 1 });
+    const currentItems = updated[headIdx].items;
+    // If only 1 item and its springs is 4, split into 2 and 2 so total springs remains 4
+    if (currentItems.length === 1 && currentItems[0].springs === 4) {
+      currentItems[0].springs = 2;
+      currentItems.push({ id: Date.now().toString(), shade_number: '', springs: 2 });
+    } else {
+      currentItems.push({ id: Date.now().toString(), shade_number: '', springs: 1 });
+    }
     setM2Heads(updated);
   };
 
@@ -496,6 +579,10 @@ export default function WindingMaster() {
     if (m2Heads[headIdx].items.length <= 1) return;
     const updated = [...m2Heads];
     updated[headIdx].items.splice(itemIdx, 1);
+    // If only 1 item remains and it had 2 springs, restore to 4
+    if (updated[headIdx].items.length === 1 && updated[headIdx].items[0].springs === 2) {
+      updated[headIdx].items[0].springs = 4;
+    }
     setM2Heads(updated);
   };
 
@@ -1048,16 +1135,20 @@ export default function WindingMaster() {
                         </View>
                       ))}
 
-                      {headSum < 4 && (
-                        <TouchableOpacity
-                          onPress={() => addHeadItem(hIdx)}
-                          style={{ marginTop: 8, alignSelf: 'flex-start' }}
-                        >
-                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
-                            + Split Another Shade on this Head
-                          </Text>
-                        </TouchableOpacity>
-                      )}
+                      <TouchableOpacity
+                        onPress={() => addHeadItem(hIdx)}
+                        style={[
+                          styles.addHeadShadeBtn,
+                          {
+                            borderColor: colors.primary,
+                            backgroundColor: colors.card,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.addHeadShadeBtnText, { color: colors.primary }]}>
+                          + Add Shade in {head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th'} Head (और शेड जोड़ें)
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   );
                 })}
@@ -1320,9 +1411,11 @@ export default function WindingMaster() {
           <View style={[styles.shadeModalBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
             {/* Modal Header */}
             <View style={styles.shadeModalHeader}>
-              <View>
+              <View style={{ flex: 1 }}>
                 <Text style={[styles.shadeModalTitle, { color: colors.text }]}>
-                  🎨 Select Shade (शेड चुनें)
+                  🎨 Select Shade {shadeTarget?.section === 'head' && shadeTarget.headIdx !== undefined
+                    ? `(📍 ${shadeTarget.headIdx + 1}${shadeTarget.headIdx === 0 ? 'st' : shadeTarget.headIdx === 1 ? 'nd' : shadeTarget.headIdx === 2 ? 'rd' : 'th'} Head)`
+                    : ''}
                 </Text>
                 <Text style={{ fontSize: 12, color: colors.textSecondary }}>
                   Range #1 to #460 (लिखें या सीधे टैप करें)
@@ -1336,8 +1429,65 @@ export default function WindingMaster() {
               </TouchableOpacity>
             </View>
 
+            {/* Mode Switcher: Single vs Multi-Shade */}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 8 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setMultiSelectMode(false);
+                  setSelectedShadesList([]);
+                }}
+                style={[
+                  styles.modeTabBtn,
+                  !multiSelectMode
+                    ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                    : { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                ]}
+              >
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: !multiSelectMode ? '#fff' : colors.text }}>
+                  Single Shade (एक शेड)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setMultiSelectMode(true);
+                  if (shadeTarget) {
+                    let currentShade = '';
+                    if (shadeTarget.section === 'head' && shadeTarget.headIdx !== undefined) {
+                      currentShade = m2Heads[shadeTarget.headIdx].items[shadeTarget.rowIdx]?.shade_number || '';
+                    } else if (shadeTarget.section === 'k800') {
+                      currentShade = m1K800Items[shadeTarget.rowIdx]?.shade_number || '';
+                    } else if (shadeTarget.section === 'dolly') {
+                      currentShade = m1DollyItems[shadeTarget.rowIdx]?.shade_number || '';
+                    }
+                    if (currentShade && !selectedShadesList.includes(currentShade)) {
+                      setSelectedShadesList([currentShade]);
+                    }
+                  }
+                }}
+                style={[
+                  styles.modeTabBtn,
+                  multiSelectMode
+                    ? { backgroundColor: '#7C3AED', borderColor: '#7C3AED' }
+                    : { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                ]}
+              >
+                <Text style={{ fontSize: 12, fontWeight: 'bold', color: multiSelectMode ? '#fff' : colors.text }}>
+                  ☑️ Multi-Shade (एक से ज्यादा शेड) {selectedShadesList.length > 0 ? `(${selectedShadesList.length})` : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {multiSelectMode && (
+              <View style={[styles.multiSelectBanner, { backgroundColor: '#EDE9FE', borderColor: '#C4B5FD' }]}>
+                <Text style={{ fontSize: 12, color: '#5B21B6', fontWeight: 'bold' }}>
+                  💡 नीचे से जितने चाहे शेड टैप करके चुनें ({selectedShadesList.length} चुने गए)
+                </Text>
+              </View>
+            )}
+
             {/* Direct Search / Typing Box inside Modal */}
-            <View style={{ marginVertical: 12 }}>
+            <View style={{ marginBottom: 10 }}>
               <TextInput
                 style={[
                   styles.shadeSearchInput,
@@ -1351,14 +1501,20 @@ export default function WindingMaster() {
                 autoFocus
                 onSubmitEditing={() => {
                   if (shadeSearch.trim()) {
-                    handleSelectShade(shadeSearch.trim().replace(/^#/, ''));
+                    const clean = shadeSearch.trim().replace(/^#/, '');
+                    if (multiSelectMode) {
+                      toggleMultiShade(clean);
+                      setShadeSearch('');
+                    } else {
+                      handleSelectShade(clean);
+                    }
                   }
                 }}
               />
             </View>
 
             {/* Quick Range Filter Tabs */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12, maxHeight: 38 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10, maxHeight: 36 }}>
               {(['all', '1-100', '101-200', '201-300', '301-400', '401-460'] as const).map((r) => {
                 const isSelected = rangeTab === r;
                 return (
@@ -1382,36 +1538,85 @@ export default function WindingMaster() {
             </ScrollView>
 
             {/* Shades Grid (Range #1 to #460) */}
-            <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={styles.shadesGrid}>
-              {filteredShades.map((sn) => (
-                <TouchableOpacity
-                  key={sn}
-                  onPress={() => handleSelectShade(sn)}
-                  style={[
-                    styles.shadeChip,
-                    {
-                      backgroundColor: colors.inputBackground,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.shadeChipText, { color: colors.text }]}>#{sn}</Text>
-                </TouchableOpacity>
-              ))}
+            <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={styles.shadesGrid}>
+              {filteredShades.map((sn) => {
+                const isSelected = selectedShadesList.includes(sn);
+                return (
+                  <TouchableOpacity
+                    key={sn}
+                    onPress={() => {
+                      if (multiSelectMode) {
+                        toggleMultiShade(sn);
+                      } else {
+                        handleSelectShade(sn);
+                      }
+                    }}
+                    style={[
+                      styles.shadeChip,
+                      isSelected
+                        ? { backgroundColor: '#7C3AED', borderColor: '#6D28D9' }
+                        : {
+                            backgroundColor: colors.inputBackground,
+                            borderColor: colors.border,
+                          },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.shadeChipText,
+                        { color: isSelected ? '#fff' : colors.text },
+                      ]}
+                    >
+                      {isSelected ? `✓ #${sn}` : `#${sn}`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
               {filteredShades.length === 0 && (
-                <View style={{ width: '100%', padding: 24, alignItems: 'center' }}>
+                <View style={{ width: '100%', padding: 20, alignItems: 'center' }}>
                   <Text style={{ color: colors.textSecondary, marginBottom: 10 }}>No matching shade for "{shadeSearch}"</Text>
                   {shadeSearch.trim() && (
                     <TouchableOpacity
-                      onPress={() => handleSelectShade(shadeSearch.trim().replace(/^#/, ''))}
+                      onPress={() => {
+                        const clean = shadeSearch.trim().replace(/^#/, '');
+                        if (multiSelectMode) {
+                          toggleMultiShade(clean);
+                          setShadeSearch('');
+                        } else {
+                          handleSelectShade(clean);
+                        }
+                      }}
                       style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
                     >
-                      <Text style={{ color: '#fff', fontWeight: 'bold' }}>Use "#{shadeSearch.trim().replace(/^#/, '')}"</Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold' }}>
+                        {multiSelectMode ? `+ Add "#${shadeSearch.trim().replace(/^#/, '')}" to Selection` : `Use "#${shadeSearch.trim().replace(/^#/, '')}"`}
+                      </Text>
                     </TouchableOpacity>
                   )}
                 </View>
               )}
             </ScrollView>
+
+            {/* Multi-Select Floating Apply Bar */}
+            {multiSelectMode && (
+              <View style={[styles.multiApplyBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+                <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.text }}>
+                  {selectedShadesList.length} Shades Selected
+                </Text>
+                <TouchableOpacity
+                  onPress={handleApplyMultiShades}
+                  disabled={selectedShadesList.length === 0}
+                  style={[
+                    styles.applyBtn,
+                    { backgroundColor: selectedShadesList.length > 0 ? '#7C3AED' : '#CBD5E0' },
+                  ]}
+                >
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>
+                    ✅ Apply ({selectedShadesList.length}) Shades
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -1946,5 +2151,49 @@ const styles = StyleSheet.create({
   shadeChipText: {
     fontSize: 13,
     fontWeight: 'bold',
+  },
+  addHeadShadeBtn: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  addHeadShadeBtnText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  modeTabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  multiSelectBanner: {
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  multiApplyBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 4,
+    borderTopWidth: 1,
+    marginTop: 8,
+  },
+  applyBtn: {
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 8,
   },
 });
