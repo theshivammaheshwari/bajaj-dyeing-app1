@@ -117,10 +117,10 @@ export default function WindingMaster() {
 
   // M2 / M3 / M4 State (4 heads, each up to 4 springs)
   const [m2Heads, setM2Heads] = useState<HeadData[]>([
-    { head_number: 1, items: [{ id: '1-1', shade_number: '', springs: 4 }] },
-    { head_number: 2, items: [{ id: '2-1', shade_number: '', springs: 4 }] },
-    { head_number: 3, items: [{ id: '3-1', shade_number: '', springs: 4 }] },
-    { head_number: 4, items: [{ id: '4-1', shade_number: '', springs: 4 }] },
+    { head_number: 1, items: [{ id: '1-1', shade_number: '', springs: 0 }] },
+    { head_number: 2, items: [{ id: '2-1', shade_number: '', springs: 0 }] },
+    { head_number: 3, items: [{ id: '3-1', shade_number: '', springs: 0 }] },
+    { head_number: 4, items: [{ id: '4-1', shade_number: '', springs: 0 }] },
   ]);
 
   // Parchi Photo State
@@ -540,10 +540,8 @@ export default function WindingMaster() {
 
   // Load existing tasks on mount or date change
   useEffect(() => {
-    if (activeTab === 'register' || userRole !== 'winding_operator') {
-      fetchTasks();
-    }
-  }, [activeTab, taskDate, userRole]);
+    fetchTasks();
+  }, [taskDate, userRole]);
 
   const fetchTasks = async () => {
     try {
@@ -561,6 +559,17 @@ export default function WindingMaster() {
       setLoadingTasks(false);
     }
   };
+
+  // Filter individual operator tasks (strictly Phool sees Phool, Rajeev sees Rajeev, etc.)
+  const operatorTasks = useMemo(() => {
+    return tasksList.filter((t) => {
+      const tOp = (t.operator_name || '').trim().toLowerCase();
+      const currOp = (operatorName || '').trim().toLowerCase();
+      const tMach = (t.machine_id || '').trim().toUpperCase();
+      const currMach = (selectedMachine || '').trim().toUpperCase();
+      return tOp === currOp || tMach === currMach;
+    });
+  }, [tasksList, operatorName, selectedMachine]);
 
   // Helper calculations for M1
   const m1K800Springs = m1K800Items.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
@@ -880,14 +889,7 @@ export default function WindingMaster() {
   // Helper to add shade in a Head for M2/M3/M4
   const addHeadItem = (headIdx: number) => {
     const updated = [...m2Heads];
-    const currentItems = updated[headIdx].items;
-    // If only 1 item and its springs is 4, split into 2 and 2 so total springs remains 4
-    if (currentItems.length === 1 && currentItems[0].springs === 4) {
-      currentItems[0].springs = 2;
-      currentItems.push({ id: Date.now().toString(), shade_number: '', springs: 2 });
-    } else {
-      currentItems.push({ id: Date.now().toString(), shade_number: '', springs: 1 });
-    }
+    updated[headIdx].items.push({ id: Date.now().toString(), shade_number: '', springs: 0 });
     setM2Heads(updated);
   };
 
@@ -895,11 +897,8 @@ export default function WindingMaster() {
     if (m2Heads[headIdx].items.length <= 1) return;
     const updated = [...m2Heads];
     updated[headIdx].items.splice(itemIdx, 1);
-    // If only 1 item remains and it had 2 springs, restore to 4
-    if (updated[headIdx].items.length === 1 && updated[headIdx].items[0].springs === 2) {
-      updated[headIdx].items[0].springs = 4;
-    }
     setM2Heads(updated);
+    if (taskStatus === 'in_progress') syncTaskInProgress();
   };
 
   if (userRole === null) {
@@ -1557,7 +1556,7 @@ export default function WindingMaster() {
                                   { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
                                 ]}
                                 keyboardType="numeric"
-                                placeholder="Springs"
+                                placeholder="0"
                                 placeholderTextColor={colors.textSecondary}
                                 value={it.springs ? it.springs.toString() : ''}
                                 editable={taskStatus !== 'completed'}
@@ -1719,6 +1718,108 @@ export default function WindingMaster() {
                   </>
                 )}
               </TouchableOpacity>
+            )}
+          </View>
+
+          {/* ============================================================== */}
+          {/* OPERATOR'S INDIVIDUAL RECORDED TASKS                           */}
+          {/* ============================================================== */}
+          <View style={{ marginTop: 20, marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>
+                  📝 My Recorded Tasks ({operatorTasks.length})
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                  👤 {operatorName} ({selectedMachine}) • {taskDate} के रिकॉर्ड किए गए टास्क
+                </Text>
+              </View>
+              <View style={[styles.badge, { backgroundColor: colors.primary }]}>
+                <Text style={styles.badgeText}>{operatorTasks.length} Recorded</Text>
+              </View>
+            </View>
+
+            {loadingTasks ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 16 }} />
+            ) : operatorTasks.length === 0 ? (
+              <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border, paddingVertical: 18 }]}>
+                <Text style={{ fontSize: 28, marginBottom: 6 }}>🔍</Text>
+                <Text style={[styles.emptyTitle, { color: colors.text, fontSize: 14 }]}>No Tasks Recorded for Today</Text>
+                <Text style={[styles.emptySub, { color: colors.textSecondary, fontSize: 12 }]}>
+                  आज ({taskDate}) के लिए आपका कोई टास्क अभी तक रिकॉर्ड नहीं हुआ है। ऊपर Start Task करके काम पूरा करने पर Complete Task दबाएं।
+                </Text>
+              </View>
+            ) : (
+              operatorTasks.map((t) => (
+                <View
+                  key={t.id}
+                  style={[styles.taskItemCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 10 }]}
+                >
+                  <View style={styles.taskItemHeader}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={[styles.machineTag, { backgroundColor: colors.primary }]}>
+                        <Text style={styles.machineTagText}>{t.machine_id}</Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.taskOperator, { color: colors.text }]}>
+                          👤 {t.operator_name || operatorName}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                          {t.quality_name} • {t.date}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#38A169' }}>
+                        ₹{t.total_wages.toFixed(2)}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                        {t.total_springs} Sp ({t.total_kg} KG)
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Timings & Status */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+                    {(t.start_time || t.end_time) && (
+                      <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                        ⏱️ Time: {t.start_time || 'N/A'} ➡️ {t.end_time || 'N/A'}
+                      </Text>
+                    )}
+                    <View
+                      style={{
+                        backgroundColor: t.status === 'completed' ? '#C6F6D5' : '#FEFCBF',
+                        paddingHorizontal: 7,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 'bold',
+                          color: t.status === 'completed' ? '#22543D' : '#744210',
+                        }}
+                      >
+                        {t.status === 'completed' ? '✅ Completed' : '🟢 In Progress'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Parchi Photo View Button */}
+                  {t.parchi_image_url ? (
+                    <TouchableOpacity
+                      onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
+                      style={[styles.viewParchiBtn, { borderColor: colors.primary, backgroundColor: colors.primaryLight, marginTop: 8 }]}
+                    >
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                        📷 View Uploaded Parchi Photo (पर्ची देखें)
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              ))
             )}
           </View>
 
