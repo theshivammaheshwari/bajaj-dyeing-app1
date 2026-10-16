@@ -2605,8 +2605,18 @@ async def get_parchi_image(image_id: str):
             raise HTTPException(status_code=404, detail="Image not found")
         img_data = doc.get("data", "")
         content_type = doc.get("content_type", "image/jpeg")
-        binary_data = base64.b64decode(img_data)
-        return Response(content=binary_data, media_type=content_type)
+        if "," in img_data:
+            img_data = img_data.split(",", 1)[1]
+        clean_b64 = re.sub(r'[^A-Za-z0-9+/=]', '', img_data)
+        missing_padding = len(clean_b64) % 4
+        if missing_padding:
+            clean_b64 += '=' * (4 - missing_padding)
+        binary_data = base64.b64decode(clean_b64)
+        return Response(
+            content=binary_data,
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
     except HTTPException:
         raise
     except Exception as e:

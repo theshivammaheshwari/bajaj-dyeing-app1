@@ -47,6 +47,7 @@ interface WindingTask {
   parchi_image_url?: string;
   notes?: string;
   is_extra_m2?: boolean;
+  allocated_items?: Record<string, number>;
   created_at?: string;
 }
 
@@ -58,6 +59,128 @@ const getTodayDateString = () => {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+// Robust image URL resolver for Cloudinary, MongoDB endpoints, and base64 data URIs
+const resolveImageUrl = (url?: string | null): string => {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (trimmed.startsWith('data:') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  const base = EXPO_PUBLIC_BACKEND_URL || '';
+  if (trimmed.startsWith('/')) {
+    return `${base}${trimmed}`;
+  }
+  return `${base}/${trimmed}`;
+};
+
+// Client-side image compression: downsizes large camera photos to ~150KB to prevent Vercel 4.5MB HTTP 413 limits
+const compressImage = (dataUrl: string, maxWidth = 1200, quality = 0.75): Promise<string> => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return resolve(dataUrl);
+    }
+    try {
+      const img = new (window as any).Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          return resolve(dataUrl);
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressed);
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch {
+      resolve(dataUrl);
+    }
+  });
+};
+
+// Extract list of shades and springs worked on from task sections or allocated_items
+const extractShadesFromTask = (t: WindingTask): { shade: string; springs: number; sectionName?: string }[] => {
+  const result: { shade: string; springs: number; sectionName?: string }[] = [];
+  const shadeMap = new Map<string, { springs: number; sections: Set<string> }>();
+
+  // 1. Check sections (M1 k800/dolly_gold or M2/M3/M4 zip135 heads)
+  if (Array.isArray(t.sections) && t.sections.length > 0) {
+    t.sections.forEach((sec: any) => {
+      const secTitle = sec.title || (sec.section_id === 'k800' ? 'K800' : sec.section_id === 'dolly_gold' ? 'Dolly Gold' : 'Zip 135');
+      if (Array.isArray(sec.items)) {
+        sec.items.forEach((it: any) => {
+          const sn = String(it.shade_number || '').trim().replace(/^#/, '');
+          const sp = Number(it.springs) || 0;
+          if (sn && sp > 0) {
+            const existing = shadeMap.get(sn) || { springs: 0, sections: new Set<string>() };
+            existing.springs += sp;
+            existing.sections.add(secTitle);
+            shadeMap.set(sn, existing);
+          }
+        });
+      }
+      if (Array.isArray(sec.heads)) {
+        sec.heads.forEach((h: any) => {
+          const headLabel = `Head ${h.head_number}`;
+          if (Array.isArray(h.items)) {
+            h.items.forEach((it: any) => {
+              const sn = String(it.shade_number || '').trim().replace(/^#/, '');
+              const sp = Number(it.springs) || 0;
+              if (sn && sp > 0) {
+                const existing = shadeMap.get(sn) || { springs: 0, sections: new Set<string>() };
+                existing.springs += sp;
+                existing.sections.add(headLabel);
+                shadeMap.set(sn, existing);
+              }
+            });
+          }
+        });
+      }
+    });
+  }
+
+  // 2. Check allocated_items fallback
+  if (shadeMap.size === 0 && t.allocated_items && typeof t.allocated_items === 'object') {
+    Object.entries(t.allocated_items).forEach(([snRaw, spRaw]) => {
+      const sn = String(snRaw).trim().replace(/^#/, '');
+      const sp = Number(spRaw) || 0;
+      if (sn && sp > 0) {
+        shadeMap.set(sn, { springs: sp, sections: new Set<string>() });
+      }
+    });
+  }
+
+  shadeMap.forEach((val, sn) => {
+    const secArr = Array.from(val.sections);
+    result.push({
+      shade: sn,
+      springs: val.springs,
+      sectionName: secArr.length > 0 ? secArr.join(', ') : undefined,
+    });
+  });
+
+  result.sort((a, b) => {
+    const numA = parseInt(a.shade, 10);
+    const numB = parseInt(b.shade, 10);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.shade.localeCompare(b.shade);
+  });
+
+  return result;
 };
 
 export default function WindingMaster() {
@@ -136,6 +259,8 @@ export default function WindingMaster() {
 
   // Hidden File input ref for Web / Mobile Browser camera
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const taskFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingForTaskId, setUploadingForTaskId] = useState<string | null>(null);
 
   // Load authenticated user profile
   useEffect(() => {
@@ -604,7 +729,8 @@ export default function WindingMaster() {
 
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const b64 = event.target?.result as string;
+      const rawB64 = event.target?.result as string;
+      const b64 = await compressImage(rawB64, 1200, 0.75);
       setParchiBase64(b64);
       // Auto-upload to backend / Cloudinary
       await uploadParchiPhoto(b64);
@@ -625,16 +751,88 @@ export default function WindingMaster() {
       });
       if (res.ok) {
         const data = await res.json();
-        setParchiImageUrl(data.url);
+        const url = data.url || base64String;
+        setParchiImageUrl(url);
+        // If task is in progress, sync immediately
+        if (activeTaskId) {
+          fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks/${activeTaskId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parchi_image_url: url }),
+          }).catch((err) => console.error('Failed to sync parchi to active task:', err));
+        }
       } else {
-        Alert.alert('Upload Error', 'Could not upload parchi image');
+        // Fallback to compressed base64 so it is never lost
+        setParchiImageUrl(base64String);
       }
     } catch (e) {
       console.error('Error uploading photo:', e);
-      Alert.alert('Error', 'Image upload failed. Please try again.');
+      setParchiImageUrl(base64String);
     } finally {
       setUploadingImage(false);
     }
+  };
+
+  // Upload or replace parchi on any existing recorded task (Admin or Operator)
+  const triggerTaskPhotoUpload = (taskId: string) => {
+    setUploadingForTaskId(taskId);
+    if (Platform.OS === 'web' && taskFileInputRef.current) {
+      taskFileInputRef.current.value = '';
+      taskFileInputRef.current.click();
+    }
+  };
+
+  const handleTaskPhotoSelect = async (e: any) => {
+    const file = e.target?.files?.[0];
+    const targetTaskId = uploadingForTaskId;
+    if (!file || !targetTaskId) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        setLoadingTasks(true);
+        const rawB64 = event.target?.result as string;
+        const b64 = await compressImage(rawB64, 1200, 0.75);
+
+        let imgUrl = b64;
+        try {
+          const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/upload-parchi`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_base64: b64,
+              filename: `parchi_task_${targetTaskId}.jpg`,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.url) imgUrl = data.url;
+          }
+        } catch (uploadErr) {
+          console.warn('Backend upload-parchi failed, using compressed base64 fallback:', uploadErr);
+        }
+
+        const patchRes = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks/${targetTaskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parchi_image_url: imgUrl }),
+        });
+
+        if (patchRes.ok) {
+          Alert.alert('✅ Parchi Attached', 'Parchi photo successfully uploaded and linked to this task!');
+          await fetchTasks();
+        } else {
+          Alert.alert('Error', 'Failed to update task with parchi photo.');
+        }
+      } catch (err) {
+        console.error('Error attaching photo:', err);
+        Alert.alert('Error', 'Could not process photo.');
+      } finally {
+        setLoadingTasks(false);
+        setUploadingForTaskId(null);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Start Task Handler
@@ -802,12 +1000,20 @@ export default function WindingMaster() {
           const data = await res.json();
           finalImageUrl = data.url;
           setParchiImageUrl(data.url);
+        } else {
+          finalImageUrl = parchiBase64;
+          setParchiImageUrl(parchiBase64);
         }
       } catch (e) {
         console.error('Error uploading photo during complete:', e);
+        finalImageUrl = parchiBase64;
+        setParchiImageUrl(parchiBase64);
       } finally {
         setUploadingImage(false);
       }
+    }
+    if (!finalImageUrl && parchiBase64) {
+      finalImageUrl = parchiBase64;
     }
 
     const now = new Date();
@@ -913,14 +1119,24 @@ export default function WindingMaster() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Hidden File Input for Mobile & Web Camera Capture */}
       {Platform.OS === 'web' && (
-        <input
-          type="file"
-          accept="image/*"
-          capture="environment"
-          ref={fileInputRef as any}
-          style={{ display: 'none' }}
-          onChange={handlePhotoSelect}
-        />
+        <>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={fileInputRef as any}
+            style={{ display: 'none' }}
+            onChange={handlePhotoSelect}
+          />
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={taskFileInputRef as any}
+            style={{ display: 'none' }}
+            onChange={handleTaskPhotoSelect}
+          />
+        </>
       )}
 
       {/* Header */}
@@ -1807,17 +2023,136 @@ export default function WindingMaster() {
                     </View>
                   </View>
 
-                  {/* Parchi Photo View Button */}
+                  {/* Shades Worked On Breakdown */}
+                  {(() => {
+                    const taskShades = extractShadesFromTask(t);
+                    return (
+                      <View
+                        style={[
+                          styles.shadesSummaryBox,
+                          { backgroundColor: colors.background, borderColor: colors.border },
+                        ]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.text }}>
+                            🧵 Shades & Springs Used (काम किए गए शेड्स):
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                            Total: {t.total_springs} Springs
+                          </Text>
+                        </View>
+                        {taskShades.length > 0 ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {taskShades.map((sh, idx) => (
+                              <View
+                                key={idx}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: colors.primaryLight,
+                                  borderColor: colors.primary,
+                                  borderWidth: 1,
+                                  borderRadius: 6,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                  gap: 4,
+                                }}
+                              >
+                                <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.primary }}>
+                                  #{sh.shade}
+                                </Text>
+                                <View style={{ width: 1, height: 10, backgroundColor: colors.primary, opacity: 0.3 }} />
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>
+                                  {sh.springs} Sp
+                                </Text>
+                                {sh.sectionName ? (
+                                  <Text style={{ fontSize: 9, color: colors.textSecondary, marginLeft: 2 }}>
+                                    ({sh.sectionName})
+                                  </Text>
+                                ) : null}
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <Text style={{ fontSize: 11, color: colors.textSecondary, fontStyle: 'italic' }}>
+                            No shade details recorded
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })()}
+
+                  {/* Parchi Photo View / Attachment Card */}
                   {t.parchi_image_url ? (
-                    <TouchableOpacity
-                      onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
-                      style={[styles.viewParchiBtn, { borderColor: colors.primary, backgroundColor: colors.primaryLight, marginTop: 8 }]}
-                    >
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
-                        📷 View Uploaded Parchi Photo (पर्ची देखें)
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
+                    <View style={[styles.parchiRecordCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
+                        style={styles.parchiThumbWrapper}
+                      >
+                        <Image
+                          source={{ uri: resolveImageUrl(t.parchi_image_url) }}
+                          style={styles.parchiRecordThumb}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.parchiZoomBadge}>
+                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>🔍 Zoom</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <View style={{ flex: 1, marginLeft: 12, justifyContent: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.text }}>
+                            📜 Task Parchi Photo
+                          </Text>
+                          <View style={{ backgroundColor: '#C6F6D5', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                            <Text style={{ fontSize: 10, color: '#22543D', fontWeight: 'bold' }}>
+                              ✅ Attached
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                          पर्ची की फोटो सुरक्षित है। पूरा देखने के लिए दबाएं।
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                          <TouchableOpacity
+                            onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
+                            style={[styles.smallActionBtn, { backgroundColor: colors.primary }]}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>
+                              🔍 View Parchi (पर्ची देखें)
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => triggerTaskPhotoUpload(t.id)}
+                            style={[styles.smallActionBtn, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                          >
+                            <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '600' }}>
+                              🔄 Replace Photo
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={[styles.parchiMissingCard, { backgroundColor: '#FFF5F5', borderColor: '#FEB2B2' }]}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#C53030' }}>
+                          ⚠️ Parchi Not Attached (पर्ची अपलोड नहीं है)
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#9B2C2C', marginTop: 2 }}>
+                          इस टास्क के साथ पर्ची की फोटो संलग्न नहीं है।
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => triggerTaskPhotoUpload(t.id)}
+                        style={[styles.smallActionBtn, { backgroundColor: '#E53E3E' }]}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>
+                          📤 Upload Parchi
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               ))
             )}
@@ -1945,17 +2280,136 @@ export default function WindingMaster() {
                     </Text>
                   )}
 
-                  {/* Parchi Photo View Button */}
+                  {/* Shades Worked On Breakdown */}
+                  {(() => {
+                    const taskShades = extractShadesFromTask(t);
+                    return (
+                      <View
+                        style={[
+                          styles.shadesSummaryBox,
+                          { backgroundColor: colors.background, borderColor: colors.border },
+                        ]}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.text }}>
+                            🧵 Shades & Springs Used (काम किए गए शेड्स):
+                          </Text>
+                          <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                            Total: {t.total_springs} Springs
+                          </Text>
+                        </View>
+                        {taskShades.length > 0 ? (
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                            {taskShades.map((sh, idx) => (
+                              <View
+                                key={idx}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: colors.primaryLight,
+                                  borderColor: colors.primary,
+                                  borderWidth: 1,
+                                  borderRadius: 6,
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 3,
+                                  gap: 4,
+                                }}
+                              >
+                                <Text style={{ fontSize: 12, fontWeight: 'bold', color: colors.primary }}>
+                                  #{sh.shade}
+                                </Text>
+                                <View style={{ width: 1, height: 10, backgroundColor: colors.primary, opacity: 0.3 }} />
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text }}>
+                                  {sh.springs} Sp
+                                </Text>
+                                {sh.sectionName ? (
+                                  <Text style={{ fontSize: 9, color: colors.textSecondary, marginLeft: 2 }}>
+                                    ({sh.sectionName})
+                                  </Text>
+                                ) : null}
+                              </View>
+                            ))}
+                          </View>
+                        ) : (
+                          <Text style={{ fontSize: 11, color: colors.textSecondary, fontStyle: 'italic' }}>
+                            No shade details recorded
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })()}
+
+                  {/* Parchi Photo View / Attachment Card */}
                   {t.parchi_image_url ? (
-                    <TouchableOpacity
-                      onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
-                      style={[styles.viewParchiBtn, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}
-                    >
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
-                        📷 View Uploaded Parchi Photo (पर्ची देखें)
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
+                    <View style={[styles.parchiRecordCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
+                        style={styles.parchiThumbWrapper}
+                      >
+                        <Image
+                          source={{ uri: resolveImageUrl(t.parchi_image_url) }}
+                          style={styles.parchiRecordThumb}
+                          resizeMode="cover"
+                        />
+                        <View style={styles.parchiZoomBadge}>
+                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>🔍 Zoom</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <View style={{ flex: 1, marginLeft: 12, justifyContent: 'center' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.text }}>
+                            📜 Task Parchi Photo
+                          </Text>
+                          <View style={{ backgroundColor: '#C6F6D5', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                            <Text style={{ fontSize: 10, color: '#22543D', fontWeight: 'bold' }}>
+                              ✅ Attached
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                          पर्ची की फोटो सुरक्षित है। पूरा देखने के लिए दबाएं।
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                          <TouchableOpacity
+                            onPress={() => setSelectedPhotoModal(t.parchi_image_url || null)}
+                            style={[styles.smallActionBtn, { backgroundColor: colors.primary }]}
+                          >
+                            <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>
+                              🔍 View Parchi (पर्ची देखें)
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() => triggerTaskPhotoUpload(t.id)}
+                            style={[styles.smallActionBtn, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+                          >
+                            <Text style={{ color: colors.textSecondary, fontSize: 11, fontWeight: '600' }}>
+                              🔄 Replace Photo
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={[styles.parchiMissingCard, { backgroundColor: '#FFF5F5', borderColor: '#FEB2B2' }]}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={{ fontSize: 12, fontWeight: 'bold', color: '#C53030' }}>
+                          ⚠️ Parchi Not Attached (पर्ची अपलोड नहीं है)
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#9B2C2C', marginTop: 2 }}>
+                          इस टास्क के साथ पर्ची की फोटो संलग्न नहीं है।
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => triggerTaskPhotoUpload(t.id)}
+                        style={[styles.smallActionBtn, { backgroundColor: '#E53E3E' }]}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>
+                          📤 Upload Parchi
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               ))
             )}
@@ -1969,18 +2423,16 @@ export default function WindingMaster() {
           <View style={[styles.photoModalContent, { backgroundColor: colors.card }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <Text style={{ fontWeight: 'bold', fontSize: 16, color: colors.text }}>
-                📜 Winding Task Parchi
+                📜 Winding Task Parchi (पर्ची)
               </Text>
-              <TouchableOpacity onPress={() => setSelectedPhotoModal(null)}>
+              <TouchableOpacity onPress={() => setSelectedPhotoModal(null)} style={{ padding: 4 }}>
                 <Text style={{ fontSize: 20, color: colors.text, fontWeight: 'bold' }}>✕</Text>
               </TouchableOpacity>
             </View>
             {selectedPhotoModal && (
               <Image
                 source={{
-                  uri: selectedPhotoModal.startsWith('http')
-                    ? selectedPhotoModal
-                    : `${EXPO_PUBLIC_BACKEND_URL}${selectedPhotoModal}`,
+                  uri: resolveImageUrl(selectedPhotoModal),
                 }}
                 style={styles.fullParchiImage}
                 resizeMode="contain"
@@ -2697,6 +3149,58 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     alignItems: 'center',
+  },
+  shadesSummaryBox: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  parchiRecordCard: {
+    flexDirection: 'row',
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  parchiThumbWrapper: {
+    position: 'relative',
+    width: 68,
+    height: 68,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  parchiRecordThumb: {
+    width: 68,
+    height: 68,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  parchiZoomBadge: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  parchiMissingCard: {
+    flexDirection: 'row',
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  smallActionBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   photoModalOverlay: {
     flex: 1,
