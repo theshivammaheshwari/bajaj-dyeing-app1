@@ -61,6 +61,21 @@ const getTodayDateString = () => {
   return `${year}-${month}-${day}`;
 };
 
+const formatDisplayDate = (dateStr: string) => {
+  try {
+    const parts = (dateStr || getTodayDateString()).split('-');
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    return d.toLocaleDateString('en-IN', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return dateStr;
+  }
+};
+
 // Robust image URL resolver for Cloudinary, MongoDB endpoints, and base64 data URIs
 const resolveImageUrl = (url?: string | null): string => {
   if (!url) return '';
@@ -198,6 +213,16 @@ export default function WindingMaster() {
   const [selectedMachine, setSelectedMachine] = useState<'M1' | 'M2' | 'M3' | 'M4'>('M1');
   const [taskDate, setTaskDate] = useState<string>(getTodayDateString);
   const [operatorName, setOperatorName] = useState<string>('Phool');
+
+  const changeDateByDays = (days: number) => {
+    const parts = (taskDate || getTodayDateString()).split('-');
+    const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    d.setDate(d.getDate() + days);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    setTaskDate(`${year}-${month}-${day}`);
+  };
 
   // Shade Picker Dropdown & Range Modal State
   const [shadePickerVisible, setShadePickerVisible] = useState<boolean>(false);
@@ -2303,6 +2328,125 @@ export default function WindingMaster() {
         /* MASTER REGISTER / ALL TASKS VIEW                                */
         /* ============================================================== */
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
+          {/* Admin Date Selector & Tracker Card */}
+          <View style={[styles.sectionCard, { borderColor: colors.border, marginBottom: 12 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>
+                  📅 Task Date Tracker (तारीख अनुसार रिकॉर्ड देखें)
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.textSecondary }}>
+                  कैलेंडर से किसी भी दिन की तारीख चुनकर उस दिन का प्रोडक्शन व रिकॉर्डेड टास्क ट्रैक करें
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <TouchableOpacity
+                  onPress={() => changeDateByDays(-1)}
+                  style={[styles.smallActionBtn, { backgroundColor: colors.inputBackground, borderColor: colors.border, borderWidth: 1 }]}
+                >
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: 'bold' }}>◀ Prev Day</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setTaskDate(getTodayDateString())}
+                  style={[
+                    styles.smallActionBtn,
+                    {
+                      backgroundColor: taskDate === getTodayDateString() ? colors.primary : colors.inputBackground,
+                      borderColor: taskDate === getTodayDateString() ? colors.primary : colors.border,
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: taskDate === getTodayDateString() ? '#fff' : colors.text,
+                      fontSize: 12,
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    Today (आज)
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => changeDateByDays(1)}
+                  style={[styles.smallActionBtn, { backgroundColor: colors.inputBackground, borderColor: colors.border, borderWidth: 1 }]}
+                >
+                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: 'bold' }}>Next Day ▶</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => fetchTasks()}
+                  style={[styles.smallActionBtn, { backgroundColor: colors.primaryLight, borderColor: colors.primary, borderWidth: 1 }]}
+                >
+                  <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>🔄 Refresh</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <View style={{ flex: 1, minWidth: 220 }}>
+                {Platform.OS === 'web' ? (
+                  <input
+                    type="date"
+                    value={taskDate}
+                    onChange={(e) => setTaskDate(e.target.value)}
+                    style={{
+                      backgroundColor: colors.inputBackground,
+                      color: colors.text,
+                      border: `1.5px solid ${colors.primary}`,
+                      borderRadius: 8,
+                      padding: '10px 14px',
+                      fontSize: 15,
+                      fontWeight: 'bold',
+                      fontFamily: 'inherit',
+                      outline: 'none',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      cursor: 'pointer',
+                    }}
+                  />
+                ) : (
+                  <TextInput
+                    style={[
+                      styles.textInput,
+                      {
+                        backgroundColor: colors.inputBackground,
+                        color: colors.text,
+                        borderColor: colors.primary,
+                        fontWeight: 'bold',
+                      },
+                    ]}
+                    value={taskDate}
+                    onChangeText={setTaskDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                )}
+              </View>
+
+              <View
+                style={{
+                  backgroundColor: colors.primaryLight,
+                  borderColor: colors.primary,
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  paddingHorizontal: 12,
+                  paddingVertical: 9,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.primary }}>
+                  🗓️ {formatDisplayDate(taskDate)}
+                </Text>
+                <View style={{ width: 1, height: 14, backgroundColor: colors.primary, opacity: 0.3 }} />
+                <Text style={{ fontSize: 12, color: colors.text, fontWeight: '600' }}>
+                  {tasksList.length} {tasksList.length === 1 ? 'Task' : 'Tasks'} Recorded
+                </Text>
+              </View>
+            </View>
+          </View>
+
           {/* Summary Dashboard Cards */}
           <View style={styles.summaryGrid}>
             <View style={[styles.dashCard, { backgroundColor: '#EBF8FF', borderColor: '#BEE3F8' }]}>
