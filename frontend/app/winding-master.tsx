@@ -88,6 +88,16 @@ export default function WindingMaster() {
   const [multiSelectMode, setMultiSelectMode] = useState<boolean>(false);
   const [selectedShadesList, setSelectedShadesList] = useState<string[]>([]);
 
+  // Active In-Progress Task ID (persisted in DB)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+
+  // Live Available Stock Map from Stock In Hand
+  const [stockMap, setStockMap] = useState<{
+    [shade: string]: { springs_2ply: number; springs_3ply: number; available: number };
+  }>({});
+  const [loadingStock, setLoadingStock] = useState<boolean>(false);
+  const [inStockOnlyFilter, setInStockOnlyFilter] = useState<boolean>(false);
+
   // M1 Operator Running M2 as well toggle
   const [isExtraM2, setIsExtraM2] = useState<boolean>(false);
 
@@ -226,8 +236,152 @@ export default function WindingMaster() {
     }
   };
 
+  const currentPly = selectedMachine === 'M1' ? '2-ply' : '3-ply';
+
+  // Fetch available stock for current machine
+  const fetchAvailableStock = async () => {
+    try {
+      setLoadingStock(true);
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/available-stock?machine_id=${selectedMachine}`);
+      if (res.ok) {
+        const data = await res.json();
+        setStockMap(data.shades || {});
+      }
+    } catch (e) {
+      console.error('Error fetching available stock:', e);
+    } finally {
+      setLoadingStock(false);
+    }
+  };
+
+  // Fetch active in-progress task for current operator & machine
+  const fetchActiveTask = async () => {
+    try {
+      const url = `${EXPO_PUBLIC_BACKEND_URL}/api/winding/active-task?machine_id=${selectedMachine}&operator_name=${encodeURIComponent(operatorName)}&date=${taskDate}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.active_task) {
+          const t = data.active_task;
+          setActiveTaskId(t.id);
+          setTaskStatus('in_progress');
+          setStartTime(t.start_time || null);
+          if (t.parchi_image_url) setParchiImageUrl(t.parchi_image_url);
+          if (t.is_extra_m2 !== undefined) setIsExtraM2(t.is_extra_m2);
+
+          // Restore sections
+          if (selectedMachine === 'M1') {
+            const k800Sec = (t.sections || []).find((s: any) => s.section_id === 'k800');
+            const dollySec = (t.sections || []).find((s: any) => s.section_id === 'dolly_gold');
+            if (k800Sec && k800Sec.items && k800Sec.items.length > 0) {
+              setM1K800Items(k800Sec.items);
+            }
+            if (dollySec) {
+              if (dollySec.target_springs) setM1DollyTarget(dollySec.target_springs);
+              if (dollySec.items && dollySec.items.length > 0) {
+                setM1DollyItems(dollySec.items);
+              }
+            }
+          } else {
+            const zipSec = (t.sections || []).find((s: any) => s.section_id === 'zip135');
+            if (zipSec && zipSec.heads && zipSec.heads.length > 0) {
+              setM2Heads(zipSec.heads);
+            }
+          }
+        } else {
+          setActiveTaskId(null);
+          setTaskStatus('pending');
+          setStartTime(null);
+          setEndTime(null);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching active task:', e);
+    }
+  };
+
+  // Trigger stock & active task check on machine/operator/date changes
+  useEffect(() => {
+    if (userRole === 'winding_operator') {
+      fetchAvailableStock();
+      fetchActiveTask();
+    }
+  }, [selectedMachine, operatorName, taskDate, userRole]);
+
+  // Sync modifications while task is in-progress
+  const syncTaskInProgress = async (customSections?: any[]) => {
+    if (taskStatus !== 'in_progress' || !activeTaskId) return;
+
+    let sectionsPayload = customSections;
+    if (!sectionsPayload) {
+      if (selectedMachine === 'M1') {
+        sectionsPayload = [
+          {
+            section_id: 'k800',
+            title: 'Kohinoor 800 mtr (K800)',
+            target_springs: 36,
+            rate_per_kg: 12.0,
+            weight_per_spring: 1.5,
+            items: m1K800Items.filter((i) => i.shade_number && i.springs > 0),
+            total_springs: m1K800Springs,
+            total_kg: m1K800Kg,
+            total_wages: m1K800Wages,
+          },
+          {
+            section_id: 'dolly_gold',
+            title: 'Dolly Gold',
+            target_springs: m1DollyTarget,
+            rate_per_kg: 4.5,
+            weight_per_spring: 1.5,
+            items: m1DollyItems.filter((i) => i.shade_number && i.springs > 0),
+            total_springs: m1DollySprings,
+            total_kg: m1DollyKg,
+            total_wages: m1DollyWages,
+          },
+        ];
+      } else {
+        sectionsPayload = [
+          {
+            section_id: 'zip135',
+            title: 'Zip 135 mtr',
+            target_springs: 16,
+            rate_per_kg: 40.0,
+            weight_per_spring: 1.5,
+            heads: m2Heads,
+            total_springs: m2TotalSprings,
+            total_kg: m2TotalKg,
+            total_wages: m2TotalWages,
+          },
+        ];
+      }
+    }
+
+    try {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks/${activeTaskId}/sync-in-progress`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sections: sectionsPayload,
+          total_springs: currentTotalSprings,
+          total_kg: currentTotalKg,
+          total_wages: currentTotalWages,
+        }),
+      });
+      if (res.ok) {
+        fetchAvailableStock();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        Alert.alert('Stock Sync Warning', errData.detail || 'Could not update stock.');
+        fetchAvailableStock();
+      }
+    } catch (e) {
+      console.error('Error syncing task in progress:', e);
+    }
+  };
+
   // Open shade picker modal
   const openShadePicker = (section: 'k800' | 'dolly' | 'head', rowIdx: number, headIdx?: number) => {
+    fetchAvailableStock();
     setShadeTarget({ section, rowIdx, headIdx });
     setShadeSearch('');
     setRangeTab('all');
@@ -238,10 +392,19 @@ export default function WindingMaster() {
 
   // Toggle multi-select shade
   const toggleMultiShade = (shadeNum: string) => {
-    if (selectedShadesList.includes(shadeNum)) {
-      setSelectedShadesList(selectedShadesList.filter((s) => s !== shadeNum));
+    const cleanSn = shadeNum.replace(/^#/, '');
+    if (selectedShadesList.includes(cleanSn)) {
+      setSelectedShadesList(selectedShadesList.filter((s) => s !== cleanSn));
     } else {
-      setSelectedShadesList([...selectedShadesList, shadeNum]);
+      const avail = stockMap[cleanSn]?.available ?? 0;
+      if (avail <= 0) {
+        Alert.alert(
+          'Out of Stock',
+          `Shade #${cleanSn} has 0 springs available in ${currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
+        );
+        return;
+      }
+      setSelectedShadesList([...selectedShadesList, cleanSn]);
     }
   };
 
@@ -263,15 +426,18 @@ export default function WindingMaster() {
         if (idx === n - 1 && n <= 4) {
           springs = 4 - perSpring * (n - 1);
         }
+        const avail = stockMap[sn]?.available ?? 4;
+        const clamped = Math.min(springs > 0 ? springs : 1, Math.max(1, avail));
         return {
           id: `${Date.now()}-${idx}`,
           shade_number: sn,
-          springs: springs > 0 ? springs : 1,
+          springs: clamped,
         };
       });
 
       updated[hIdx].items = newItems;
       setM2Heads(updated);
+      if (taskStatus === 'in_progress') syncTaskInProgress();
     } else if (shadeTarget.section === 'k800') {
       const updated = [...m1K800Items];
       selectedShadesList.forEach((sn, idx) => {
@@ -286,6 +452,7 @@ export default function WindingMaster() {
         }
       });
       setM1K800Items(updated);
+      if (taskStatus === 'in_progress') syncTaskInProgress();
     } else if (shadeTarget.section === 'dolly') {
       const updated = [...m1DollyItems];
       selectedShadesList.forEach((sn, idx) => {
@@ -300,6 +467,7 @@ export default function WindingMaster() {
         }
       });
       setM1DollyItems(updated);
+      if (taskStatus === 'in_progress') syncTaskInProgress();
     }
 
     setShadePickerVisible(false);
@@ -311,38 +479,64 @@ export default function WindingMaster() {
   // Handle selecting a single shade from dropdown modal
   const handleSelectShade = (shadeNum: string) => {
     if (!shadeTarget) return;
+    const cleanSn = shadeNum.replace(/^#/, '');
+    const avail = stockMap[cleanSn]?.available ?? 0;
+    if (avail <= 0) {
+      Alert.alert(
+        'Out of Stock (स्टॉक नहीं है)',
+        `Shade #${cleanSn} does not have any springs available in ${currentPly} stock! (स्टॉक में 0 स्प्रिंग्स हैं)`
+      );
+      return;
+    }
+
     if (shadeTarget.section === 'k800') {
       const updated = [...m1K800Items];
-      updated[shadeTarget.rowIdx].shade_number = shadeNum;
+      updated[shadeTarget.rowIdx].shade_number = cleanSn;
       setM1K800Items(updated);
+      if (taskStatus === 'in_progress') syncTaskInProgress();
     } else if (shadeTarget.section === 'dolly') {
       const updated = [...m1DollyItems];
-      updated[shadeTarget.rowIdx].shade_number = shadeNum;
+      updated[shadeTarget.rowIdx].shade_number = cleanSn;
       setM1DollyItems(updated);
+      if (taskStatus === 'in_progress') syncTaskInProgress();
     } else if (shadeTarget.section === 'head' && shadeTarget.headIdx !== undefined) {
       const updated = [...m2Heads];
-      updated[shadeTarget.headIdx].items[shadeTarget.rowIdx].shade_number = shadeNum;
+      updated[shadeTarget.headIdx].items[shadeTarget.rowIdx].shade_number = cleanSn;
       setM2Heads(updated);
+      if (taskStatus === 'in_progress') syncTaskInProgress();
     }
     setShadePickerVisible(false);
     setShadeTarget(null);
   };
 
-  // Filter shades #1 to #460 based on search query and range tab
-  const filteredShades = ALL_SHADES_LIST.filter((sn) => {
-    const num = parseInt(sn, 10);
-    if (rangeTab === '1-100' && (num < 1 || num > 100)) return false;
-    if (rangeTab === '101-200' && (num < 101 || num > 200)) return false;
-    if (rangeTab === '201-300' && (num < 201 || num > 300)) return false;
-    if (rangeTab === '301-400' && (num < 301 || num > 400)) return false;
-    if (rangeTab === '401-460' && (num < 401 || num > 460)) return false;
+  // Filter shades #1 to #460 based on search query, range tab, and in-stock toggle
+  const filteredShades = useMemo(() => {
+    return ALL_SHADES_LIST.filter((sn) => {
+      const avail = stockMap[sn]?.available ?? 0;
+      if (inStockOnlyFilter && avail <= 0) return false;
 
-    if (shadeSearch.trim()) {
-      const q = shadeSearch.trim().replace(/^#/, '');
-      return sn.includes(q);
+      const num = parseInt(sn, 10);
+      if (rangeTab === '1-100' && (num < 1 || num > 100)) return false;
+      if (rangeTab === '101-200' && (num < 101 || num > 200)) return false;
+      if (rangeTab === '201-300' && (num < 201 || num > 300)) return false;
+      if (rangeTab === '301-400' && (num < 301 || num > 400)) return false;
+      if (rangeTab === '401-460' && (num < 401 || num > 460)) return false;
+
+      if (shadeSearch.trim()) {
+        const q = shadeSearch.trim().replace(/^#/, '');
+        return sn.includes(q);
+      }
+      return true;
+    });
+  }, [stockMap, inStockOnlyFilter, rangeTab, shadeSearch]);
+
+  const inStockCount = useMemo(() => {
+    let count = 0;
+    for (const sn of ALL_SHADES_LIST) {
+      if ((stockMap[sn]?.available ?? 0) > 0) count++;
     }
-    return true;
-  });
+    return count;
+  }, [stockMap]);
 
   // Load existing tasks on mount or date change
   useEffect(() => {
@@ -435,27 +629,56 @@ export default function WindingMaster() {
   };
 
   // Start Task Handler
-  const handleStartTask = () => {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setStartTime(timeStr);
-    setTaskStatus('in_progress');
-    Alert.alert('▶️ Task Started', `Winding task started at ${timeStr}`);
-  };
+  const handleStartTask = async () => {
+    // Validate at least one shade with springs > 0
+    const hasValidItems =
+      selectedMachine === 'M1'
+        ? m1K800Items.some((i) => i.shade_number && i.springs > 0) ||
+          m1DollyItems.some((i) => i.shade_number && i.springs > 0)
+        : m2Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
 
-  // Save / Complete Task Handler
-  const handleCompleteTask = async () => {
-    if (taskStatus !== 'in_progress' && !startTime) {
-      Alert.alert('Start Task First', 'Please press Start Task before completing!');
+    if (!hasValidItems) {
+      Alert.alert('Selection Required', 'कृपया टास्क शुरू करने से पहले कम से कम एक शेड नंबर और स्प्रिंग भरें!');
       return;
     }
 
-    const now = new Date();
-    const endTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setEndTime(endTimeStr);
-    setTaskStatus('completed');
+    // Validate available stock for each shade
+    const itemsToCheck: { sn: string; springs: number }[] = [];
+    if (selectedMachine === 'M1') {
+      m1K800Items.forEach((i) => {
+        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs) });
+      });
+      m1DollyItems.forEach((i) => {
+        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs) });
+      });
+    } else {
+      m2Heads.forEach((h) => {
+        h.items.forEach((i) => {
+          if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs) });
+        });
+      });
+    }
 
-    // Prepare Sections payload
+    const sumMap: { [sn: string]: number } = {};
+    for (const it of itemsToCheck) {
+      sumMap[it.sn] = (sumMap[it.sn] || 0) + it.springs;
+    }
+
+    for (const sn of Object.keys(sumMap)) {
+      const needed = sumMap[sn];
+      const avail = stockMap[sn]?.available ?? 0;
+      if (needed > avail) {
+        Alert.alert(
+          'Insufficient Stock (स्टॉक कम है)',
+          `Shade #${sn} ke liye sirf ${avail} springs available hain (${currentPly}), par aapne ${needed} dali hain!`
+        );
+        return;
+      }
+    }
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
     let sectionsPayload: any[] = [];
     if (selectedMachine === 'M1') {
       sectionsPayload = [
@@ -503,9 +726,7 @@ export default function WindingMaster() {
       machine_id: selectedMachine,
       operator_name: operatorName,
       quality_name: selectedMachine === 'M1' ? 'K800 + Dolly Gold' : 'Zip 135 mtr',
-      status: 'completed',
-      start_time: startTime,
-      end_time: endTimeStr,
+      start_time: timeStr,
       sections: sectionsPayload,
       total_springs: currentTotalSprings,
       total_kg: currentTotalKg,
@@ -515,25 +736,120 @@ export default function WindingMaster() {
     };
 
     try {
-      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks`, {
+      const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       if (res.ok) {
+        const data = await res.json();
+        setActiveTaskId(data.id);
+        setStartTime(timeStr);
+        setTaskStatus('in_progress');
+        fetchAvailableStock();
         Alert.alert(
-          '🎉 Task Completed & Saved!',
-          `Operator: ${operatorName}\nMachine: ${selectedMachine}\nTotal Springs: ${currentTotalSprings}\nTotal Weight: ${currentTotalKg.toFixed(
-            1
-          )} KG\nTotal Wages: ₹${currentTotalWages.toFixed(2)}`
+          '▶️ Task Started!',
+          `Winding task started at ${timeStr}.\nस्प्रिंग्स स्टॉक इन हैंड (${currentPly}) से घटा दी गई हैं!`
         );
       } else {
-        Alert.alert('Error', 'Failed to save winding task');
+        const errData = await res.json().catch(() => ({}));
+        Alert.alert('Cannot Start Task', errData.detail || 'Failed to start task');
+      }
+    } catch (e) {
+      console.error('Error starting task:', e);
+      Alert.alert('Error', 'Network error while starting task');
+    }
+  };
+
+  // Save / Complete Task Handler
+  const handleCompleteTask = async () => {
+    if (taskStatus !== 'in_progress' && !activeTaskId) {
+      Alert.alert('Start Task First', 'पहले Start Task बटन दबाएं!');
+      return;
+    }
+
+    if (!parchiImageUrl && !parchiBase64) {
+      Alert.alert(
+        '📷 Parchi Photo Required (पर्ची की फोटो अनिवार्य है)',
+        'टास्क पूरा करने से पहले पर्ची की फोटो खींचें या अपलोड करें!'
+      );
+      return;
+    }
+
+    let finalImageUrl = parchiImageUrl;
+    if (!finalImageUrl && parchiBase64) {
+      try {
+        setUploadingImage(true);
+        const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/upload-parchi`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_base64: parchiBase64,
+            filename: `parchi_${selectedMachine}_${taskDate}.jpg`,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          finalImageUrl = data.url;
+          setParchiImageUrl(data.url);
+        }
+      } catch (e) {
+        console.error('Error uploading photo during complete:', e);
+      } finally {
+        setUploadingImage(false);
+      }
+    }
+
+    const now = new Date();
+    const endTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    try {
+      const url = activeTaskId
+        ? `${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks/${activeTaskId}/complete`
+        : `${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks`;
+
+      const method = 'POST';
+      const bodyPayload = activeTaskId
+        ? { end_time: endTimeStr, parchi_image_url: finalImageUrl }
+        : {
+            date: taskDate,
+            machine_id: selectedMachine,
+            operator_name: operatorName,
+            quality_name: selectedMachine === 'M1' ? 'K800 + Dolly Gold' : 'Zip 135 mtr',
+            status: 'completed',
+            start_time: startTime || endTimeStr,
+            end_time: endTimeStr,
+            total_springs: currentTotalSprings,
+            total_kg: currentTotalKg,
+            total_wages: currentTotalWages,
+            parchi_image_url: finalImageUrl,
+            is_extra_m2: isExtraM2,
+          };
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPayload),
+      });
+
+      if (res.ok) {
+        setEndTime(endTimeStr);
+        setTaskStatus('completed');
+        fetchTasks();
+        Alert.alert(
+          '🎉 Task Completed & Locked!',
+          `Operator: ${operatorName}\nMachine: ${selectedMachine}\nTotal Springs: ${currentTotalSprings}\nTotal Weight: ${currentTotalKg.toFixed(
+            1
+          )} KG\nTotal Wages: ₹${currentTotalWages.toFixed(2)}\n\nटास्क पूरा हो गया है और अब लॉक हो चुका है।`
+        );
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        Alert.alert('Error', errData.detail || 'Failed to complete task');
       }
     } catch (e) {
       console.error('Error completing task:', e);
-      Alert.alert('Error', 'Network error while saving task');
+      Alert.alert('Error', 'Network error while completing task');
     }
   };
 
@@ -826,64 +1142,117 @@ export default function WindingMaster() {
                 </View>
 
                 {/* Items List */}
-                {m1K800Items.map((item, idx) => (
-                  <View key={item.id} style={styles.entryRow}>
-                    <View
-                      style={[
-                        styles.shadeCompoundBox,
-                        { backgroundColor: colors.inputBackground, borderColor: colors.border },
-                      ]}
-                    >
-                      <TextInput
-                        style={[styles.shadeCompoundInput, { color: colors.text }]}
-                        placeholder="Shade #1–#460"
-                        placeholderTextColor={colors.textSecondary}
-                        value={item.shade_number}
-                        keyboardType="numeric"
-                        onChangeText={(val) => {
-                          const updated = [...m1K800Items];
-                          updated[idx].shade_number = val.replace(/^#/, '');
-                          setM1K800Items(updated);
-                        }}
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.shadeDropdownBtn,
-                          {
-                            backgroundColor: 'rgba(128, 90, 213, 0.15)',
-                            borderLeftColor: colors.border,
-                          },
-                        ]}
-                        onPress={() => openShadePicker('k800', idx)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={[
-                        styles.springInput,
-                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
-                      ]}
-                      keyboardType="numeric"
-                      placeholder="0"
-                      placeholderTextColor={colors.textSecondary}
-                      value={item.springs ? item.springs.toString() : ''}
-                      onChangeText={(val) => {
-                        const updated = [...m1K800Items];
-                        updated[idx].springs = parseInt(val) || 0;
-                        setM1K800Items(updated);
-                      }}
-                    />
-                    <TouchableOpacity onPress={() => removeM1K800Row(idx)} style={styles.deleteRowBtn}>
-                      <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                {m1K800Items.map((item, idx) => {
+                  const cleanSn = item.shade_number ? item.shade_number.replace(/^#/, '') : '';
+                  const availStock = stockMap[cleanSn]?.available ?? 0;
+                  const prevQty = Number(item.springs) || 0;
+                  const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
 
-                <TouchableOpacity onPress={addM1K800Row} style={[styles.addBtn, { borderColor: colors.primary }]}>
-                  <Text style={[styles.addBtnText, { color: colors.primary }]}>+ Add Shade (और शेड जोड़ें)</Text>
-                </TouchableOpacity>
+                  return (
+                    <View key={item.id} style={{ marginBottom: 10 }}>
+                      <View style={styles.entryRow}>
+                        <View
+                          style={[
+                            styles.shadeCompoundBox,
+                            { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                          ]}
+                        >
+                          <TextInput
+                            style={[styles.shadeCompoundInput, { color: colors.text }]}
+                            placeholder="Shade #1–#460"
+                            placeholderTextColor={colors.textSecondary}
+                            value={item.shade_number}
+                            keyboardType="numeric"
+                            editable={taskStatus !== 'completed'}
+                            onChangeText={(val) => {
+                              const updated = [...m1K800Items];
+                              updated[idx].shade_number = val.replace(/^#/, '');
+                              setM1K800Items(updated);
+                            }}
+                          />
+                          <TouchableOpacity
+                            style={[
+                              styles.shadeDropdownBtn,
+                              {
+                                backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                                borderLeftColor: colors.border,
+                                opacity: taskStatus === 'completed' ? 0.5 : 1,
+                              },
+                            ]}
+                            disabled={taskStatus === 'completed'}
+                            onPress={() => openShadePicker('k800', idx)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <TextInput
+                          style={[
+                            styles.springInput,
+                            { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                          ]}
+                          keyboardType="numeric"
+                          placeholder="0"
+                          placeholderTextColor={colors.textSecondary}
+                          value={item.springs ? item.springs.toString() : ''}
+                          editable={taskStatus !== 'completed'}
+                          onChangeText={(val) => {
+                            let entered = parseInt(val) || 0;
+                            if (cleanSn && entered > maxAllowed) {
+                              Alert.alert(
+                                'Maximum Stock Limit',
+                                `Shade #${cleanSn} has only ${maxAllowed} springs available in ${currentPly} stock!`
+                              );
+                              entered = maxAllowed;
+                            }
+                            const updated = [...m1K800Items];
+                            updated[idx].springs = entered;
+                            setM1K800Items(updated);
+                            if (taskStatus === 'in_progress') syncTaskInProgress();
+                          }}
+                        />
+                        {taskStatus !== 'completed' ? (
+                          <TouchableOpacity onPress={() => removeM1K800Row(idx)} style={styles.deleteRowBtn}>
+                            <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={styles.spacerBtn} />
+                        )}
+                      </View>
+
+                      {/* Stock in Hand Badge */}
+                      {cleanSn ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, marginLeft: 2 }}>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: availStock > 0 ? '#E6FFFA' : '#FFF5F5',
+                              borderColor: availStock > 0 ? '#81E6D9' : '#FEB2B2',
+                              borderWidth: 1,
+                              paddingHorizontal: 8,
+                              paddingVertical: 3,
+                              borderRadius: 6,
+                              gap: 4,
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: 'bold', color: availStock > 0 ? '#234E52' : '#9B2C2C' }}>
+                              {availStock > 0
+                                ? `📦 Available: ${availStock} Springs (${currentPly} Stock)`
+                                : `⚠️ 0 Springs in ${currentPly} Stock (Out of Stock)`}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+
+                {taskStatus !== 'completed' && (
+                  <TouchableOpacity onPress={addM1K800Row} style={[styles.addBtn, { borderColor: colors.primary }]}>
+                    <Text style={[styles.addBtnText, { color: colors.primary }]}>+ Add Shade (और शेड जोड़ें)</Text>
+                  </TouchableOpacity>
+                )}
 
                 <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground }]}>
                   <Text style={[styles.summaryText, { color: colors.text }]}>
@@ -907,18 +1276,22 @@ export default function WindingMaster() {
                   <View style={{ flexDirection: 'row', gap: 6 }}>
                     <TouchableOpacity
                       onPress={() => setM1DollyTarget(8)}
+                      disabled={taskStatus === 'completed'}
                       style={[
                         styles.dollyChoiceBtn,
                         m1DollyTarget === 8 && { backgroundColor: colors.primary, borderColor: colors.primary },
+                        taskStatus === 'completed' && { opacity: 0.6 },
                       ]}
                     >
                       <Text style={[styles.dollyChoiceText, m1DollyTarget === 8 && { color: '#fff' }]}>8 Sp (12kg)</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => setM1DollyTarget(10)}
+                      disabled={taskStatus === 'completed'}
                       style={[
                         styles.dollyChoiceBtn,
                         m1DollyTarget === 10 && { backgroundColor: colors.primary, borderColor: colors.primary },
+                        taskStatus === 'completed' && { opacity: 0.6 },
                       ]}
                     >
                       <Text style={[styles.dollyChoiceText, m1DollyTarget === 10 && { color: '#fff' }]}>
@@ -938,64 +1311,117 @@ export default function WindingMaster() {
                 </View>
 
                 {/* Items List */}
-                {m1DollyItems.map((item, idx) => (
-                  <View key={item.id} style={styles.entryRow}>
-                    <View
-                      style={[
-                        styles.shadeCompoundBox,
-                        { backgroundColor: colors.inputBackground, borderColor: colors.border },
-                      ]}
-                    >
-                      <TextInput
-                        style={[styles.shadeCompoundInput, { color: colors.text }]}
-                        placeholder="Shade #1–#460"
-                        placeholderTextColor={colors.textSecondary}
-                        value={item.shade_number}
-                        keyboardType="numeric"
-                        onChangeText={(val) => {
-                          const updated = [...m1DollyItems];
-                          updated[idx].shade_number = val.replace(/^#/, '');
-                          setM1DollyItems(updated);
-                        }}
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.shadeDropdownBtn,
-                          {
-                            backgroundColor: 'rgba(128, 90, 213, 0.15)',
-                            borderLeftColor: colors.border,
-                          },
-                        ]}
-                        onPress={() => openShadePicker('dolly', idx)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={[
-                        styles.springInput,
-                        { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
-                      ]}
-                      keyboardType="numeric"
-                      placeholder="0"
-                      placeholderTextColor={colors.textSecondary}
-                      value={item.springs ? item.springs.toString() : ''}
-                      onChangeText={(val) => {
-                        const updated = [...m1DollyItems];
-                        updated[idx].springs = parseInt(val) || 0;
-                        setM1DollyItems(updated);
-                      }}
-                    />
-                    <TouchableOpacity onPress={() => removeM1DollyRow(idx)} style={styles.deleteRowBtn}>
-                      <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                {m1DollyItems.map((item, idx) => {
+                  const cleanSn = item.shade_number ? item.shade_number.replace(/^#/, '') : '';
+                  const availStock = stockMap[cleanSn]?.available ?? 0;
+                  const prevQty = Number(item.springs) || 0;
+                  const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
 
-                <TouchableOpacity onPress={addM1DollyRow} style={[styles.addBtn, { borderColor: colors.primary }]}>
-                  <Text style={[styles.addBtnText, { color: colors.primary }]}>+ Add Shade (और शेड जोड़ें)</Text>
-                </TouchableOpacity>
+                  return (
+                    <View key={item.id} style={{ marginBottom: 10 }}>
+                      <View style={styles.entryRow}>
+                        <View
+                          style={[
+                            styles.shadeCompoundBox,
+                            { backgroundColor: colors.inputBackground, borderColor: colors.border },
+                          ]}
+                        >
+                          <TextInput
+                            style={[styles.shadeCompoundInput, { color: colors.text }]}
+                            placeholder="Shade #1–#460"
+                            placeholderTextColor={colors.textSecondary}
+                            value={item.shade_number}
+                            keyboardType="numeric"
+                            editable={taskStatus !== 'completed'}
+                            onChangeText={(val) => {
+                              const updated = [...m1DollyItems];
+                              updated[idx].shade_number = val.replace(/^#/, '');
+                              setM1DollyItems(updated);
+                            }}
+                          />
+                          <TouchableOpacity
+                            style={[
+                              styles.shadeDropdownBtn,
+                              {
+                                backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                                borderLeftColor: colors.border,
+                                opacity: taskStatus === 'completed' ? 0.5 : 1,
+                              },
+                            ]}
+                            disabled={taskStatus === 'completed'}
+                            onPress={() => openShadePicker('dolly', idx)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <TextInput
+                          style={[
+                            styles.springInput,
+                            { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border },
+                          ]}
+                          keyboardType="numeric"
+                          placeholder="0"
+                          placeholderTextColor={colors.textSecondary}
+                          value={item.springs ? item.springs.toString() : ''}
+                          editable={taskStatus !== 'completed'}
+                          onChangeText={(val) => {
+                            let entered = parseInt(val) || 0;
+                            if (cleanSn && entered > maxAllowed) {
+                              Alert.alert(
+                                'Maximum Stock Limit',
+                                `Shade #${cleanSn} has only ${maxAllowed} springs available in ${currentPly} stock!`
+                              );
+                              entered = maxAllowed;
+                            }
+                            const updated = [...m1DollyItems];
+                            updated[idx].springs = entered;
+                            setM1DollyItems(updated);
+                            if (taskStatus === 'in_progress') syncTaskInProgress();
+                          }}
+                        />
+                        {taskStatus !== 'completed' ? (
+                          <TouchableOpacity onPress={() => removeM1DollyRow(idx)} style={styles.deleteRowBtn}>
+                            <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <View style={styles.spacerBtn} />
+                        )}
+                      </View>
+
+                      {/* Stock in Hand Badge */}
+                      {cleanSn ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, marginLeft: 2 }}>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: availStock > 0 ? '#E6FFFA' : '#FFF5F5',
+                              borderColor: availStock > 0 ? '#81E6D9' : '#FEB2B2',
+                              borderWidth: 1,
+                              paddingHorizontal: 8,
+                              paddingVertical: 3,
+                              borderRadius: 6,
+                              gap: 4,
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: 'bold', color: availStock > 0 ? '#234E52' : '#9B2C2C' }}>
+                              {availStock > 0
+                                ? `📦 Available: ${availStock} Springs (${currentPly} Stock)`
+                                : `⚠️ 0 Springs in ${currentPly} Stock (Out of Stock)`}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+
+                {taskStatus !== 'completed' && (
+                  <TouchableOpacity onPress={addM1DollyRow} style={[styles.addBtn, { borderColor: colors.primary }]}>
+                    <Text style={[styles.addBtnText, { color: colors.primary }]}>+ Add Shade (और शेड जोड़ें)</Text>
+                  </TouchableOpacity>
+                )}
 
                 <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground }]}>
                   <Text style={[styles.summaryText, { color: colors.text }]}>
@@ -1073,82 +1499,131 @@ export default function WindingMaster() {
                         <View style={styles.spacerBtn} />
                       </View>
 
-                      {head.items.map((it, iIdx) => (
-                        <View key={it.id} style={styles.entryRow}>
-                          <View
-                            style={[
-                              styles.shadeCompoundBox,
-                              { backgroundColor: colors.card, borderColor: colors.border },
-                            ]}
-                          >
-                            <TextInput
-                              style={[styles.shadeCompoundInput, { color: colors.text }]}
-                              placeholder="Shade #1–#460"
-                              placeholderTextColor={colors.textSecondary}
-                              value={it.shade_number}
-                              keyboardType="numeric"
-                              onChangeText={(val) => {
-                                const updated = [...m2Heads];
-                                updated[hIdx].items[iIdx].shade_number = val.replace(/^#/, '');
-                                setM2Heads(updated);
-                              }}
-                            />
-                            <TouchableOpacity
-                              style={[
-                                styles.shadeDropdownBtn,
-                                {
-                                  backgroundColor: 'rgba(128, 90, 213, 0.15)',
-                                  borderLeftColor: colors.border,
-                                },
-                              ]}
-                              onPress={() => openShadePicker('head', iIdx, hIdx)}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
-                            </TouchableOpacity>
-                          </View>
-                          <TextInput
-                            style={[
-                              styles.springInput,
-                              { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
-                            ]}
-                            keyboardType="numeric"
-                            placeholder="Springs"
-                            placeholderTextColor={colors.textSecondary}
-                            value={it.springs ? it.springs.toString() : ''}
-                            onChangeText={(val) => {
-                              const updated = [...m2Heads];
-                              updated[hIdx].items[iIdx].springs = parseInt(val) || 0;
-                              setM2Heads(updated);
-                            }}
-                          />
-                          {head.items.length > 1 ? (
-                            <TouchableOpacity
-                              onPress={() => removeHeadItem(hIdx, iIdx)}
-                              style={styles.deleteRowBtn}
-                            >
-                              <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
-                            </TouchableOpacity>
-                          ) : (
-                            <View style={styles.spacerBtn} />
-                          )}
-                        </View>
-                      ))}
+                      {head.items.map((it, iIdx) => {
+                        const cleanSn = it.shade_number ? it.shade_number.replace(/^#/, '') : '';
+                        const availStock = stockMap[cleanSn]?.available ?? 0;
+                        const prevQty = Number(it.springs) || 0;
+                        const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
 
-                      <TouchableOpacity
-                        onPress={() => addHeadItem(hIdx)}
-                        style={[
-                          styles.addHeadShadeBtn,
-                          {
-                            borderColor: colors.primary,
-                            backgroundColor: colors.card,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.addHeadShadeBtnText, { color: colors.primary }]}>
-                          + Add Shade in {head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th'} Head (और शेड जोड़ें)
-                        </Text>
-                      </TouchableOpacity>
+                        return (
+                          <View key={it.id} style={{ marginBottom: 10 }}>
+                            <View style={styles.entryRow}>
+                              <View
+                                style={[
+                                  styles.shadeCompoundBox,
+                                  { backgroundColor: colors.card, borderColor: colors.border },
+                                ]}
+                              >
+                                <TextInput
+                                  style={[styles.shadeCompoundInput, { color: colors.text }]}
+                                  placeholder="Shade #1–#460"
+                                  placeholderTextColor={colors.textSecondary}
+                                  value={it.shade_number}
+                                  keyboardType="numeric"
+                                  editable={taskStatus !== 'completed'}
+                                  onChangeText={(val) => {
+                                    const updated = [...m2Heads];
+                                    updated[hIdx].items[iIdx].shade_number = val.replace(/^#/, '');
+                                    setM2Heads(updated);
+                                  }}
+                                />
+                                <TouchableOpacity
+                                  style={[
+                                    styles.shadeDropdownBtn,
+                                    {
+                                      backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                                      borderLeftColor: colors.border,
+                                      opacity: taskStatus === 'completed' ? 0.5 : 1,
+                                    },
+                                  ]}
+                                  disabled={taskStatus === 'completed'}
+                                  onPress={() => openShadePicker('head', iIdx, hIdx)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                                </TouchableOpacity>
+                              </View>
+                              <TextInput
+                                style={[
+                                  styles.springInput,
+                                  { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
+                                ]}
+                                keyboardType="numeric"
+                                placeholder="Springs"
+                                placeholderTextColor={colors.textSecondary}
+                                value={it.springs ? it.springs.toString() : ''}
+                                editable={taskStatus !== 'completed'}
+                                onChangeText={(val) => {
+                                  let entered = parseInt(val) || 0;
+                                  if (cleanSn && entered > maxAllowed) {
+                                    Alert.alert(
+                                      'Maximum Stock Limit',
+                                      `Shade #${cleanSn} has only ${maxAllowed} springs available in ${currentPly} stock!`
+                                    );
+                                    entered = maxAllowed;
+                                  }
+                                  const updated = [...m2Heads];
+                                  updated[hIdx].items[iIdx].springs = entered;
+                                  setM2Heads(updated);
+                                  if (taskStatus === 'in_progress') syncTaskInProgress();
+                                }}
+                              />
+                              {taskStatus !== 'completed' && head.items.length > 1 ? (
+                                <TouchableOpacity
+                                  onPress={() => removeHeadItem(hIdx, iIdx)}
+                                  style={styles.deleteRowBtn}
+                                >
+                                  <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                                </TouchableOpacity>
+                              ) : (
+                                <View style={styles.spacerBtn} />
+                              )}
+                            </View>
+
+                            {/* Stock in Hand Badge */}
+                            {cleanSn ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, marginLeft: 2 }}>
+                                <View
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    backgroundColor: availStock > 0 ? '#E6FFFA' : '#FFF5F5',
+                                    borderColor: availStock > 0 ? '#81E6D9' : '#FEB2B2',
+                                    borderWidth: 1,
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 3,
+                                    borderRadius: 6,
+                                    gap: 4,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: availStock > 0 ? '#234E52' : '#9B2C2C' }}>
+                                    {availStock > 0
+                                      ? `📦 Available: ${availStock} Springs (${currentPly} Stock)`
+                                      : `⚠️ 0 Springs in ${currentPly} Stock (Out of Stock)`}
+                                  </Text>
+                                </View>
+                              </View>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+
+                      {taskStatus !== 'completed' && (
+                        <TouchableOpacity
+                          onPress={() => addHeadItem(hIdx)}
+                          style={[
+                            styles.addHeadShadeBtn,
+                            {
+                              borderColor: colors.primary,
+                              backgroundColor: colors.card,
+                            },
+                          ]}
+                        >
+                          <Text style={[styles.addHeadShadeBtnText, { color: colors.primary }]}>
+                            + Add Shade in {head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th'} Head (और शेड जोड़ें)
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   );
                 })}
@@ -1190,18 +1665,20 @@ export default function WindingMaster() {
                   <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
                     {uploadingImage ? 'Uploading to server...' : 'Uploaded successfully.'}
                   </Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (Platform.OS === 'web' && fileInputRef.current) {
-                        fileInputRef.current.click();
-                      }
-                    }}
-                    style={[styles.reuploadBtn, { borderColor: colors.primary }]}
-                  >
-                    <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
-                      🔄 Re-take Photo
-                    </Text>
-                  </TouchableOpacity>
+                  {taskStatus !== 'completed' && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (Platform.OS === 'web' && fileInputRef.current) {
+                          fileInputRef.current.click();
+                        }
+                      }}
+                      style={[styles.reuploadBtn, { borderColor: colors.primary }]}
+                    >
+                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                        🔄 Re-take Photo
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             ) : (
@@ -1213,8 +1690,12 @@ export default function WindingMaster() {
                     Alert.alert('Upload', 'Please select image file');
                   }
                 }}
-                disabled={uploadingImage}
-                style={[styles.uploadBox, { backgroundColor: colors.inputBackground, borderColor: colors.primary }]}
+                disabled={uploadingImage || taskStatus === 'completed'}
+                style={[
+                  styles.uploadBox,
+                  { backgroundColor: colors.inputBackground, borderColor: colors.primary },
+                  taskStatus === 'completed' && { opacity: 0.5 },
+                ]}
               >
                 {uploadingImage ? (
                   <ActivityIndicator size="small" color={colors.primary} />
@@ -1513,6 +1994,31 @@ export default function WindingMaster() {
               />
             </View>
 
+            {/* In-Stock Filter Toggle & Range Filter Tabs */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={{ fontSize: 11, fontWeight: 'bold', color: colors.textSecondary }}>
+                Stock Filter ({currentPly}):
+              </Text>
+              <TouchableOpacity
+                onPress={() => setInStockOnlyFilter(!inStockOnlyFilter)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: inStockOnlyFilter ? '#C6F6D5' : colors.inputBackground,
+                  borderColor: inStockOnlyFilter ? '#38A169' : colors.border,
+                  borderWidth: 1,
+                  borderRadius: 6,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  gap: 4,
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: inStockOnlyFilter ? '#22543D' : colors.text }}>
+                  {inStockOnlyFilter ? '✅ In-Stock Only' : '📦 Show In-Stock Only'} ({inStockCount})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             {/* Quick Range Filter Tabs */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10, maxHeight: 36 }}>
               {(['all', '1-100', '101-200', '201-300', '301-400', '401-460'] as const).map((r) => {
@@ -1541,10 +2047,20 @@ export default function WindingMaster() {
             <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={styles.shadesGrid}>
               {filteredShades.map((sn) => {
                 const isSelected = selectedShadesList.includes(sn);
+                const avail = stockMap[sn]?.available ?? 0;
+                const hasStock = avail > 0;
+
                 return (
                   <TouchableOpacity
                     key={sn}
                     onPress={() => {
+                      if (!hasStock) {
+                        Alert.alert(
+                          'Out of Stock (स्टॉक नहीं है)',
+                          `Shade #${sn} has 0 springs available in ${currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
+                        );
+                        return;
+                      }
                       if (multiSelectMode) {
                         toggleMultiShade(sn);
                       } else {
@@ -1555,19 +2071,35 @@ export default function WindingMaster() {
                       styles.shadeChip,
                       isSelected
                         ? { backgroundColor: '#7C3AED', borderColor: '#6D28D9' }
-                        : {
+                        : hasStock
+                        ? {
                             backgroundColor: colors.inputBackground,
                             borderColor: colors.border,
+                          }
+                        : {
+                            backgroundColor: colors.inputBackground,
+                            borderColor: '#FEB2B2',
+                            opacity: 0.5,
                           },
                     ]}
                   >
                     <Text
                       style={[
                         styles.shadeChipText,
-                        { color: isSelected ? '#fff' : colors.text },
+                        { color: isSelected ? '#fff' : hasStock ? colors.text : colors.textSecondary },
                       ]}
                     >
                       {isSelected ? `✓ #${sn}` : `#${sn}`}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 'bold',
+                        marginTop: 2,
+                        color: isSelected ? '#E9D8FD' : hasStock ? '#38A169' : '#E53E3E',
+                      }}
+                    >
+                      {hasStock ? `${avail} sp` : '0 sp'}
                     </Text>
                   </TouchableOpacity>
                 );

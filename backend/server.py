@@ -2401,6 +2401,7 @@ def winding_task_helper(task) -> dict:
         "parchi_image_url": task.get("parchi_image_url", ""),
         "notes": task.get("notes", ""),
         "is_extra_m2": task.get("is_extra_m2", False),
+        "allocated_items": task.get("allocated_items", {}),
         "created_at": task.get("created_at"),
         "updated_at": task.get("updated_at")
     }
@@ -2408,6 +2409,11 @@ def winding_task_helper(task) -> dict:
 class WindingUploadRequest(BaseModel):
     image_base64: str
     filename: Optional[str] = "parchi.jpg"
+
+class WindingCompleteRequest(BaseModel):
+    end_time: Optional[str] = None
+    parchi_image_url: Optional[str] = ""
+    notes: Optional[str] = ""
 
 class WindingTaskCreate(BaseModel):
     date: str
@@ -2601,6 +2607,321 @@ async def get_parchi_image(image_id: str):
         content_type = doc.get("content_type", "image/jpeg")
         binary_data = base64.b64decode(img_data)
         return Response(content=binary_data, media_type=content_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+def extract_task_shades(sections: list) -> dict:
+    """
+    Returns dict mapping clean_sn -> total_springs in sections
+    """
+    res = {}
+    if not isinstance(sections, list):
+        return res
+    for sec in sections:
+        items = sec.get("items") or []
+        for it in items:
+            sn = str(it.get("shade_number", "")).strip().lstrip("#")
+            sp = safe_int(it.get("springs", 0))
+            if sn and sp > 0:
+                res[sn] = res.get(sn, 0) + sp
+        heads = sec.get("heads") or []
+        for h in heads:
+            h_items = h.get("items") or []
+            for it in h_items:
+                sn = str(it.get("shade_number", "")).strip().lstrip("#")
+                sp = safe_int(it.get("springs", 0))
+                if sn and sp > 0:
+                    res[sn] = res.get(sn, 0) + sp
+    return res
+
+async def compute_shades_stock_map() -> dict:
+    daily_tasks = await db.daily_tasks.find({}).to_list(10000)
+    machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
+    shades_stock = {}
+
+    all_shades = await db.shades.find({}).to_list(10000)
+    for s in all_shades:
+        sn = str(s.get("shade_number", "")).strip().lstrip("#")
+        if sn:
+            shades_stock[sn.lower()] = {
+                "shade_number": sn,
+                "springs_2ply": 0,
+                "springs_3ply": 0,
+            }
+
+    for dt in daily_tasks:
+        for m_id in machines:
+            tasks = dt.get(m_id) or []
+            if isinstance(tasks, list):
+                for t in tasks:
+                    if isinstance(t, dict) and str(t.get("status", "")).lower() == "completed":
+                        sn = str(t.get('shade_number', '') or '').strip().lstrip("#")
+                        if sn:
+                            k = sn.lower()
+                            if k not in shades_stock:
+                                shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+                            shades_stock[k]["springs_2ply"] += safe_int(t.get("springs_2ply", 0))
+                            shades_stock[k]["springs_3ply"] += safe_int(t.get("springs_3ply", 0))
+        auto_tasks = dt.get("automatic_tasks") or []
+        if isinstance(auto_tasks, list):
+            for t in auto_tasks:
+                if isinstance(t, dict) and str(t.get("status", "")).lower() == "completed":
+                    sn = str(t.get('shade_number', '') or '').strip().lstrip("#")
+                    if sn:
+                        k = sn.lower()
+                        if k not in shades_stock:
+                            shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+                        shades_stock[k]["springs_2ply"] += safe_int(t.get("springs_2ply", 0))
+                        shades_stock[k]["springs_3ply"] += safe_int(t.get("springs_3ply", 0))
+
+    overrides = await db.shade_spring_stocks.find({}).to_list(10000)
+    for o in overrides:
+        sn = str(o.get("shade_number", "") or "").strip().lstrip("#")
+        if sn:
+            k = sn.lower()
+            if k not in shades_stock:
+                shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+            shades_stock[k]["springs_2ply"] = max(0, safe_int(o.get("springs_2ply", 0)))
+            shades_stock[k]["springs_3ply"] = max(0, safe_int(o.get("springs_3ply", 0)))
+
+    return shades_stock
+
+async def get_shade_stock(shade_number: str) -> dict:
+    clean = str(shade_number).strip().lstrip("#")
+    k = clean.lower()
+    doc = await db.shade_spring_stocks.find_one({"shade_number": {"$regex": f"^{re.escape(clean)}$", "$options": "i"}})
+    if doc:
+        return {
+            "shade_number": clean,
+            "springs_2ply": max(0, safe_int(doc.get("springs_2ply", 0))),
+            "springs_3ply": max(0, safe_int(doc.get("springs_3ply", 0))),
+        }
+    all_map = await compute_shades_stock_map()
+    if k in all_map:
+        return all_map[k]
+    return {"shade_number": clean, "springs_2ply": 0, "springs_3ply": 0}
+
+async def adjust_shade_stock(shade_number: str, ply_type: str, delta: int) -> dict:
+    clean = str(shade_number).strip().lstrip("#")
+    cur = await get_shade_stock(clean)
+    new_2p = cur["springs_2ply"]
+    new_3p = cur["springs_3ply"]
+    if ply_type == "2ply":
+        new_2p = max(0, new_2p + delta)
+    elif ply_type == "3ply":
+        new_3p = max(0, new_3p + delta)
+
+    await db.shade_spring_stocks.update_one(
+        {"shade_number": clean},
+        {"$set": {
+            "shade_number": clean,
+            "springs_2ply": new_2p,
+            "springs_3ply": new_3p,
+            "updated_at": datetime.utcnow()
+        }},
+        upsert=True
+    )
+    return {"shade_number": clean, "springs_2ply": new_2p, "springs_3ply": new_3p}
+
+@api_router.get("/winding/available-stock")
+async def get_winding_available_stock(machine_id: Optional[str] = "M1"):
+    """
+    Get live available stock for all shades filtered for this machine's ply type:
+    - M1: 2-ply springs only
+    - M2, M3, M4: 3-ply springs only
+    """
+    try:
+        m_id = (machine_id or "M1").upper()
+        ply_type = "2ply" if m_id == "M1" else "3ply"
+        stock_map = await compute_shades_stock_map()
+        
+        res = {}
+        for k, v in stock_map.items():
+            sn = v["shade_number"]
+            avail = v["springs_2ply"] if ply_type == "2ply" else v["springs_3ply"]
+            res[sn] = {
+                "shade_number": sn,
+                "springs_2ply": v["springs_2ply"],
+                "springs_3ply": v["springs_3ply"],
+                "available": avail
+            }
+        return {
+            "machine_id": m_id,
+            "ply_type": ply_type,
+            "shades": res
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/winding/active-task")
+async def get_active_winding_task(machine_id: str, operator_name: Optional[str] = None, date: Optional[str] = None):
+    """
+    Check if there is an in-progress winding task for this worker & machine
+    """
+    try:
+        query = {
+            "machine_id": machine_id.upper(),
+            "status": "in_progress"
+        }
+        if date:
+            query["date"] = date
+        if operator_name:
+            query["operator_name"] = {"$regex": f"^{re.escape(operator_name)}$", "$options": "i"}
+            
+        task = await db.winding_tasks.find_one(query, sort=[("created_at", -1)])
+        if task:
+            return {"active_task": winding_task_helper(task)}
+        return {"active_task": None}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/winding/tasks/start")
+async def start_winding_task(task: WindingTaskCreate):
+    """
+    Start a winding task (status: in_progress) and deduct allocated springs from Stock In Hand!
+    """
+    try:
+        m_id = task.machine_id.upper()
+        ply_type = "2ply" if m_id == "M1" else "3ply"
+        
+        needed_shades = extract_task_shades(task.sections)
+        if not needed_shades:
+            raise HTTPException(status_code=400, detail="Please select at least one shade with springs quantity before starting task!")
+            
+        # Validate stock availability
+        for sn, qty in needed_shades.items():
+            stk = await get_shade_stock(sn)
+            avail = stk["springs_2ply"] if ply_type == "2ply" else stk["springs_3ply"]
+            if qty > avail:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Shade #{sn} has only {avail} springs available in stock ({ply_type}), but you entered {qty} springs!"
+                )
+                
+        # Deduct stock
+        for sn, qty in needed_shades.items():
+            await adjust_shade_stock(sn, ply_type, -qty)
+            
+        now_iso = datetime.utcnow().isoformat()
+        doc = {
+            "date": task.date,
+            "machine_id": m_id,
+            "operator_name": task.operator_name,
+            "quality_name": task.quality_name,
+            "status": "in_progress",
+            "start_time": task.start_time or datetime.now().strftime("%H:%M:%S"),
+            "end_time": None,
+            "sections": task.sections or [],
+            "total_springs": task.total_springs or sum(needed_shades.values()),
+            "total_kg": task.total_kg or 0.0,
+            "total_wages": task.total_wages or 0.0,
+            "parchi_image_url": task.parchi_image_url or "",
+            "notes": task.notes or "",
+            "is_extra_m2": task.is_extra_m2 or False,
+            "allocated_items": needed_shades,
+            "created_at": now_iso,
+            "updated_at": now_iso
+        }
+        res = await db.winding_tasks.insert_one(doc)
+        created = await db.winding_tasks.find_one({"_id": res.inserted_id})
+        return winding_task_helper(created)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.put("/winding/tasks/{task_id}/sync-in-progress")
+async def sync_in_progress_winding_task(task_id: str, payload: WindingTaskUpdate):
+    """
+    Sync modifications while task is in_progress.
+    - If spring quantity is decreased, difference is returned to stock!
+    - If spring quantity is increased, difference is deducted from stock!
+    """
+    try:
+        existing = await db.winding_tasks.find_one({"_id": ObjectId(task_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if existing.get("status") == "completed":
+            raise HTTPException(status_code=400, detail="This task is already completed and locked against modifications!")
+            
+        m_id = str(existing.get("machine_id", "M1")).upper()
+        ply_type = "2ply" if m_id == "M1" else "3ply"
+        
+        old_allocated = existing.get("allocated_items") or extract_task_shades(existing.get("sections") or [])
+        new_sections = payload.sections if payload.sections is not None else existing.get("sections", [])
+        new_allocated = extract_task_shades(new_sections)
+        
+        # Check stock for any increases
+        all_keys = set(old_allocated.keys()).union(set(new_allocated.keys()))
+        for sn in all_keys:
+            old_q = safe_int(old_allocated.get(sn, 0))
+            new_q = safe_int(new_allocated.get(sn, 0))
+            diff = new_q - old_q
+            if diff > 0:
+                stk = await get_shade_stock(sn)
+                avail = stk["springs_2ply"] if ply_type == "2ply" else stk["springs_3ply"]
+                if diff > avail:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot increase Shade #{sn} by {diff} springs! Only {avail} additional springs available in stock ({ply_type})."
+                    )
+                    
+        # Apply stock adjustments
+        for sn in all_keys:
+            old_q = safe_int(old_allocated.get(sn, 0))
+            new_q = safe_int(new_allocated.get(sn, 0))
+            diff = new_q - old_q
+            if diff != 0:
+                await adjust_shade_stock(sn, ply_type, -diff)
+                
+        update_data = {
+            "sections": new_sections,
+            "total_springs": payload.total_springs if payload.total_springs is not None else sum(new_allocated.values()),
+            "total_kg": payload.total_kg if payload.total_kg is not None else existing.get("total_kg", 0.0),
+            "total_wages": payload.total_wages if payload.total_wages is not None else existing.get("total_wages", 0.0),
+            "allocated_items": new_allocated,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        if payload.parchi_image_url is not None:
+            update_data["parchi_image_url"] = payload.parchi_image_url
+        if payload.notes is not None:
+            update_data["notes"] = payload.notes
+            
+        await db.winding_tasks.update_one({"_id": ObjectId(task_id)}, {"$set": update_data})
+        updated = await db.winding_tasks.find_one({"_id": ObjectId(task_id)})
+        return winding_task_helper(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.post("/winding/tasks/{task_id}/complete")
+async def complete_winding_task_endpoint(task_id: str, payload: WindingCompleteRequest):
+    """
+    Complete and permanently lock a winding task.
+    """
+    try:
+        existing = await db.winding_tasks.find_one({"_id": ObjectId(task_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+        if existing.get("status") == "completed":
+            return winding_task_helper(existing)
+            
+        end_time = payload.end_time or datetime.now().strftime("%H:%M:%S")
+        update_data = {
+            "status": "completed",
+            "end_time": end_time,
+            "parchi_image_url": payload.parchi_image_url or existing.get("parchi_image_url", ""),
+            "notes": payload.notes or existing.get("notes", ""),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        await db.winding_tasks.update_one({"_id": ObjectId(task_id)}, {"$set": update_data})
+        updated = await db.winding_tasks.find_one({"_id": ObjectId(task_id)})
+        return winding_task_helper(updated)
     except HTTPException:
         raise
     except Exception as e:
