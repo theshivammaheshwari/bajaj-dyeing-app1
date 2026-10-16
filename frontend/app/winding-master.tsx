@@ -849,6 +849,30 @@ export default function WindingMaster() {
       return;
     }
 
+    // 1. Validate Task Parchi Photo is compulsory
+    if (!parchiImageUrl && !parchiBase64) {
+      Alert.alert(
+        '📷 Task Parchi Photo Compulsory (पर्ची की फोटो अनिवार्य है)',
+        'टास्क शुरू करने से पहले पर्ची की फोटो खींचें या अपलोड करें! पर्ची की फोटो अनिवार्य (compulsory) है।'
+      );
+      return;
+    }
+
+    // 2. Validate Per Head Limit for M2, M3, M4 (max 4 per head)
+    if (selectedMachine !== 'M1') {
+      for (const h of m2Heads) {
+        const headSum = h.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
+        if (headSum > 4) {
+          const hTitle = h.head_number === 1 ? '1st' : h.head_number === 2 ? '2nd' : h.head_number === 3 ? '3rd' : '4th';
+          Alert.alert(
+            'Per Head Limit (अधिकतम 4 स्प्रिंग)',
+            `${hTitle} Head mein 4 se jyada springs nahi ho sakti! (Currently: ${headSum} Springs)`
+          );
+          return;
+        }
+      }
+    }
+
     // Validate available stock for each shade
     const itemsToCheck: { sn: string; springs: number }[] = [];
     if (selectedMachine === 'M1') {
@@ -978,8 +1002,8 @@ export default function WindingMaster() {
 
     if (!parchiImageUrl && !parchiBase64) {
       Alert.alert(
-        '📷 Parchi Photo Required (पर्ची की फोटो अनिवार्य है)',
-        'टास्क पूरा करने से पहले पर्ची की फोटो खींचें या अपलोड करें!'
+        '📷 Task Parchi Photo Compulsory (पर्ची की फोटो अनिवार्य है)',
+        'टास्क पूरा करने से पहले पर्ची की फोटो खींचें या अपलोड करें! पर्ची की फोटो अनिवार्य (compulsory) है।'
       );
       return;
     }
@@ -1092,8 +1116,18 @@ export default function WindingMaster() {
     setM1DollyItems(updated);
   };
 
-  // Helper to add shade in a Head for M2/M3/M4
+  // Helper to add shade in a Head for M2/M3/M4 (Max 4 springs per head)
   const addHeadItem = (headIdx: number) => {
+    const head = m2Heads[headIdx];
+    const headSum = head.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
+    const hTitle = head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th';
+    if (headSum >= 4) {
+      Alert.alert(
+        'Head Full (अधिकतम 4 स्प्रिंग)',
+        `${hTitle} Head mein already 4 springs poori ho chuki hain! Naya shade jodne ke liye pehle kisi shade ki spring kam karein.`
+      );
+      return;
+    }
     const updated = [...m2Heads];
     updated[headIdx].items.push({ id: Date.now().toString(), shade_number: '', springs: 0 });
     setM2Heads(updated);
@@ -1692,10 +1726,30 @@ export default function WindingMaster() {
                       ]}
                     >
                       <View style={styles.headCardHeader}>
-                        <Text style={[styles.headCardTitle, { color: colors.text }]}>
-                          📍 {head.head_number}
-                          {head.head_number === 1 ? 'st' : head.head_number === 2 ? 'nd' : head.head_number === 3 ? 'rd' : 'th'} Head
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.headCardTitle, { color: colors.text }]}>
+                            📍 {head.head_number}
+                            {head.head_number === 1 ? 'st' : head.head_number === 2 ? 'nd' : head.head_number === 3 ? 'rd' : 'th'} Head
+                          </Text>
+                          <View
+                            style={{
+                              backgroundColor: headSum === 4 ? '#C6F6D5' : headSum > 4 ? '#FED7D7' : '#EBF8FF',
+                              paddingHorizontal: 6,
+                              paddingVertical: 1,
+                              borderRadius: 4,
+                            }}
+                          >
+                            <Text
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 'bold',
+                                color: headSum === 4 ? '#22543D' : headSum > 4 ? '#C53030' : '#2B6CB0',
+                              }}
+                            >
+                              Max 4
+                            </Text>
+                          </View>
+                        </View>
                         <Text
                           style={[
                             styles.headSumBadge,
@@ -1778,12 +1832,30 @@ export default function WindingMaster() {
                                 editable={taskStatus !== 'completed'}
                                 onChangeText={(val) => {
                                   let entered = parseInt(val) || 0;
+
+                                  // 1. Max 4 springs per head limit
+                                  const otherSpringsInHead = head.items.reduce(
+                                    (sum, item, idx) => idx !== iIdx ? sum + (Number(item.springs) || 0) : sum,
+                                    0
+                                  );
+                                  const maxHeadCapacity = Math.max(0, 4 - otherSpringsInHead);
+
+                                  if (entered > maxHeadCapacity) {
+                                    const hTitle = head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th';
+                                    Alert.alert(
+                                      'Per Head Limit (अधिकतम 4 स्प्रिंग)',
+                                      `${hTitle} Head mein 4 se jyada springs nahi le sakte!\nइस हेड में अधिकतम ${maxHeadCapacity} स्प्रिंग ही ले सकते हैं।`
+                                    );
+                                    entered = maxHeadCapacity;
+                                  }
+
+                                  // 2. Maximum stock limit
                                   if (cleanSn && entered > maxAllowed) {
                                     Alert.alert(
                                       'Maximum Stock Limit',
                                       `Shade #${cleanSn} has only ${maxAllowed} springs available in ${currentPly} stock!`
                                     );
-                                    entered = maxAllowed;
+                                    entered = Math.min(entered, maxAllowed);
                                   }
                                   const updated = [...m2Heads];
                                   updated[hIdx].items[iIdx].springs = entered;
@@ -1866,12 +1938,28 @@ export default function WindingMaster() {
           {/* ============================================================== */}
           {/* PARCHI PHOTO UPLOAD SECTION                                     */}
           {/* ============================================================== */}
-          <View style={[styles.photoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              📷 Task Parchi Photo (पर्ची की फोटो अपलोड करें)
-            </Text>
+          <View
+            style={[
+              styles.photoCard,
+              {
+                backgroundColor: colors.card,
+                borderColor: !parchiImageUrl && !parchiBase64 ? '#E53E3E' : colors.border,
+                borderWidth: !parchiImageUrl && !parchiBase64 ? 1.5 : 1,
+              },
+            ]}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>
+                📷 Task Parchi Photo (पर्ची की फोटो) *
+              </Text>
+              <View style={{ backgroundColor: !parchiImageUrl && !parchiBase64 ? '#FED7D7' : '#C6F6D5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                <Text style={{ fontSize: 11, fontWeight: 'bold', color: !parchiImageUrl && !parchiBase64 ? '#C53030' : '#22543D' }}>
+                  {!parchiImageUrl && !parchiBase64 ? '⚠️ अनिवार्य (Compulsory)' : '✅ Uploaded'}
+                </Text>
+              </View>
+            </View>
             <Text style={[styles.formatSubtitle, { color: colors.textSecondary, marginBottom: 12 }]}>
-              Worker slip / parchi ki photo camera se kheench kar upload karein
+              Worker slip / parchi ki photo camera se kheench kar upload karein (टास्क शुरू और पूरा करने के लिए अनिवार्य है)
             </Text>
 
             {parchiImageUrl || parchiBase64 ? (

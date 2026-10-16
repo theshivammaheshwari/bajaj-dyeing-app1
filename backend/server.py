@@ -2796,6 +2796,25 @@ async def start_winding_task(task: WindingTaskCreate):
         m_id = task.machine_id.upper()
         ply_type = "2ply" if m_id == "M1" else "3ply"
         
+        # 1. Enforce compulsory parchi photo
+        if not task.parchi_image_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Task Parchi Photo is compulsory (पर्ची की फोटो अनिवार्य है)! Please upload parchi photo before starting task."
+            )
+
+        # 2. Enforce max 4 springs per head for M2, M3, M4
+        if m_id in ["M2", "M3", "M4"]:
+            for sec in (task.sections or []):
+                for h in (sec.get("heads") or []):
+                    head_num = h.get("head_number", "?")
+                    h_sum = sum(safe_int(it.get("springs", 0)) for it in (h.get("items") or []))
+                    if h_sum > 4:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Per Head Limit Exceeded: Head {head_num} has {h_sum} springs. Maximum 4 springs are allowed per head on {m_id}!"
+                        )
+
         needed_shades = extract_task_shades(task.sections)
         if not needed_shades:
             raise HTTPException(status_code=400, detail="Please select at least one shade with springs quantity before starting task!")
@@ -2862,6 +2881,19 @@ async def sync_in_progress_winding_task(task_id: str, payload: WindingTaskUpdate
         
         old_allocated = existing.get("allocated_items") or extract_task_shades(existing.get("sections") or [])
         new_sections = payload.sections if payload.sections is not None else existing.get("sections", [])
+        
+        # Enforce max 4 springs per head for M2, M3, M4
+        if m_id in ["M2", "M3", "M4"]:
+            for sec in (new_sections or []):
+                for h in (sec.get("heads") or []):
+                    head_num = h.get("head_number", "?")
+                    h_sum = sum(safe_int(it.get("springs", 0)) for it in (h.get("items") or []))
+                    if h_sum > 4:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Per Head Limit Exceeded: Head {head_num} has {h_sum} springs. Maximum 4 springs are allowed per head on {m_id}!"
+                        )
+                        
         new_allocated = extract_task_shades(new_sections)
         
         # Check stock for any increases
@@ -2921,11 +2953,18 @@ async def complete_winding_task_endpoint(task_id: str, payload: WindingCompleteR
         if existing.get("status") == "completed":
             return winding_task_helper(existing)
             
+        parchi_url = payload.parchi_image_url or existing.get("parchi_image_url", "")
+        if not parchi_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Task Parchi Photo is compulsory (पर्ची की फोटो अनिवार्य है)! Please upload parchi photo to complete task."
+            )
+
         end_time = payload.end_time or datetime.now().strftime("%H:%M:%S")
         update_data = {
             "status": "completed",
             "end_time": end_time,
-            "parchi_image_url": payload.parchi_image_url or existing.get("parchi_image_url", ""),
+            "parchi_image_url": parchi_url,
             "notes": payload.notes or existing.get("notes", ""),
             "updated_at": datetime.utcnow().isoformat()
         }
