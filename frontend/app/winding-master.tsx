@@ -717,10 +717,43 @@ export default function WindingMaster() {
   const m2TotalKg = m2TotalSprings * 1.5;
   const m2TotalWages = m2TotalKg * 40.0;
 
-  // Active Machine Totals
+  // Active Machine Form Totals
   const currentTotalSprings = selectedMachine === 'M1' ? m1TotalSprings : m2TotalSprings;
   const currentTotalKg = selectedMachine === 'M1' ? m1TotalKg : m2TotalKg;
   const currentTotalWages = selectedMachine === 'M1' ? m1TotalWages : m2TotalWages;
+
+  // Operator's total production & wages for today across all their recorded & active tasks
+  const operatorDayTotals = useMemo(() => {
+    let totalSprings = 0;
+    let totalKg = 0;
+    let totalWages = 0;
+
+    let hasActiveInTasks = false;
+    (operatorTasks || []).forEach((t) => {
+      if (activeTaskId && t.id === activeTaskId) {
+        hasActiveInTasks = true;
+        totalSprings += currentTotalSprings;
+        totalKg += currentTotalKg;
+        totalWages += currentTotalWages;
+      } else {
+        totalSprings += Number(t.total_springs) || 0;
+        totalKg += Number(t.total_kg) || 0;
+        totalWages += Number(t.total_wages) || 0;
+      }
+    });
+
+    if (activeTaskId && !hasActiveInTasks && taskStatus === 'in_progress') {
+      totalSprings += currentTotalSprings;
+      totalKg += currentTotalKg;
+      totalWages += currentTotalWages;
+    }
+
+    return {
+      totalSprings,
+      totalKg,
+      totalWages,
+    };
+  }, [operatorTasks, activeTaskId, taskStatus, currentTotalSprings, currentTotalKg, currentTotalWages]);
 
   // Photo Upload Handler (HTML5 / Mobile Camera & Gallery)
   const handlePhotoSelect = (e: any) => {
@@ -979,6 +1012,7 @@ export default function WindingMaster() {
         setStartTime(timeStr);
         setTaskStatus('in_progress');
         fetchAvailableStock();
+        fetchTasks();
         Alert.alert(
           '▶️ Task Started!',
           `Winding task started at ${timeStr}.\nस्प्रिंग्स स्टॉक इन हैंड (${currentPly}) से घटा दी गई हैं!`
@@ -2249,15 +2283,17 @@ export default function WindingMaster() {
           {/* Sticky Total Bar */}
           <View style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
             <View>
-              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Total Production</Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                Today's Production ({operatorTasks.length} {operatorTasks.length === 1 ? 'Task' : 'Tasks'})
+              </Text>
               <Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 16 }}>
-                {currentTotalSprings} Springs ({currentTotalKg.toFixed(1)} KG)
+                {operatorDayTotals.totalSprings} Springs ({operatorDayTotals.totalKg.toFixed(1)} KG)
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Total Wages (मजदूरी)</Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Total Wages (आज की कुल मजदूरी)</Text>
               <Text style={{ color: '#38A169', fontWeight: 'bold', fontSize: 20 }}>
-                ₹{currentTotalWages.toFixed(2)}
+                ₹{operatorDayTotals.totalWages.toFixed(2)}
               </Text>
             </View>
           </View>
