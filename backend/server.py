@@ -14,7 +14,7 @@ import hashlib
 import time
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from datetime import datetime
 from io import BytesIO
@@ -2873,7 +2873,7 @@ def get_section_ply_type(section_id: str, machine_id: str) -> str:
         return "2ply"
     return "3ply"
 
-def extract_task_shades_by_ply(sections: List[dict], machine_id: str) -> Dict[str, Dict[str, int]]:
+def extract_task_shades_by_ply(sections: List[dict], machine_id: str) -> dict:
     """Extract required springs grouped by ply_type: {"2ply": {shade: qty}, "3ply": {shade: qty}}"""
     res = {"2ply": {}, "3ply": {}}
     for sec in (sections or []):
