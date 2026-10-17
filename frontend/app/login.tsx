@@ -26,6 +26,10 @@ const OPERATORS: { [key: string]: { user: string; pass: string; name: string; ma
   rajeev: { user: 'rajeev', pass: 'rajeev@123', name: 'Rajeev', machine: 'M2' },
   operator3: { user: 'operator3', pass: 'op3@123', name: 'Operator 3', machine: 'M3' },
   operator4: { user: 'operator4', pass: 'op4@123', name: 'Operator 4', machine: 'M4' },
+  operator5: { user: 'operator5', pass: 'op5@123', name: 'Operator 5', machine: 'M5' },
+  operator6: { user: 'operator6', pass: 'op6@123', name: 'Operator 6', machine: 'M6' },
+  operator7: { user: 'operator7', pass: 'op7@123', name: 'Operator 7', machine: 'M7' },
+  operator8: { user: 'operator8', pass: 'op8@123', name: 'Operator 8', machine: 'M8' },
 };
 
 export default function Login() {
@@ -199,7 +203,7 @@ export default function Login() {
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: colors.primary }]}>🔒 Role-Based Access</Text>
             <Text style={[styles.footerSubtext, { color: colors.textSecondary }]}>
-              Admin • Dyeing Masters • Winding Operators (M1–M4)
+              Admin • Dyeing Masters • Winding Operators (M1–M8)
             </Text>
           </View>
         </View>

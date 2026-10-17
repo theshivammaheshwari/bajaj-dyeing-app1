@@ -209,8 +209,8 @@ export default function WindingMaster() {
   // Mode: 'worker' (Operator entry) vs 'register' (Master Daily Register view)
   const [activeTab, setActiveTab] = useState<'worker' | 'register'>('register');
 
-  // Selected Machine & Date
-  const [selectedMachine, setSelectedMachine] = useState<'M1' | 'M2' | 'M3' | 'M4'>('M1');
+  // Selected Machine & Date (M1 to M8)
+  const [selectedMachine, setSelectedMachine] = useState<'M1' | 'M2' | 'M3' | 'M4' | 'M5' | 'M6' | 'M7' | 'M8'>('M1');
   const [taskDate, setTaskDate] = useState<string>(getTodayDateString);
   const [operatorName, setOperatorName] = useState<string>('Phool');
 
@@ -261,9 +261,10 @@ export default function WindingMaster() {
   // Shade Picker Dropdown & Range Modal State
   const [shadePickerVisible, setShadePickerVisible] = useState<boolean>(false);
   const [shadeTarget, setShadeTarget] = useState<{
-    section: 'k800' | 'dolly' | 'head';
+    section: string;
     rowIdx: number;
     headIdx?: number;
+    targetPly?: '2-ply' | '3-ply';
   } | null>(null);
   const [shadeSearch, setShadeSearch] = useState<string>('');
   const [rangeTab, setRangeTab] = useState<'all' | '1-100' | '101-200' | '201-300' | '301-400' | '401-460'>('all');
@@ -297,13 +298,32 @@ export default function WindingMaster() {
     { id: '1', shade_number: '', springs: 0 },
   ]);
 
+  // Helper to create empty heads
+  const createDefaultHeads = (count: number, prefix: string): HeadData[] => {
+    return Array.from({ length: count }, (_, i) => ({
+      head_number: i + 1,
+      items: [{ id: `${prefix}-${i + 1}-1`, shade_number: '', springs: 0 }],
+    }));
+  };
+
   // M2 / M3 / M4 State (4 heads, each up to 4 springs)
-  const [m2Heads, setM2Heads] = useState<HeadData[]>([
-    { head_number: 1, items: [{ id: '1-1', shade_number: '', springs: 0 }] },
-    { head_number: 2, items: [{ id: '2-1', shade_number: '', springs: 0 }] },
-    { head_number: 3, items: [{ id: '3-1', shade_number: '', springs: 0 }] },
-    { head_number: 4, items: [{ id: '4-1', shade_number: '', springs: 0 }] },
-  ]);
+  const [m2Heads, setM2Heads] = useState<HeadData[]>(() => createDefaultHeads(4, 'm2'));
+
+  // M7 / M8 State (3 heads, each up to 4 springs)
+  const [m7Heads, setM7Heads] = useState<HeadData[]>(() => createDefaultHeads(3, 'm7'));
+
+  // M5 State (Crown-300: 6 heads, Dolly Gold: 18 heads, K-800: 10 heads)
+  const [m5ActiveQuality, setM5ActiveQuality] = useState<'crown300' | 'dolly_gold' | 'k800'>('crown300');
+  const [m5CrownHeads, setM5CrownHeads] = useState<HeadData[]>(() => createDefaultHeads(6, 'm5c'));
+  const [m5DollyHeads, setM5DollyHeads] = useState<HeadData[]>(() => createDefaultHeads(18, 'm5d'));
+  const [m5K800Heads, setM5K800Heads] = useState<HeadData[]>(() => createDefaultHeads(10, 'm5k'));
+
+  // M6 State (Quality switchable: Zip 135, Crown-300, Dolly Gold, K-800)
+  const [m6ActiveQuality, setM6ActiveQuality] = useState<'zip135' | 'crown300' | 'dolly_gold' | 'k800'>('zip135');
+  const [m6ZipHeads, setM6ZipHeads] = useState<HeadData[]>(() => createDefaultHeads(4, 'm6z'));
+  const [m6CrownHeads, setM6CrownHeads] = useState<HeadData[]>(() => createDefaultHeads(6, 'm6c'));
+  const [m6DollyHeads, setM6DollyHeads] = useState<HeadData[]>(() => createDefaultHeads(18, 'm6d'));
+  const [m6K800Heads, setM6K800Heads] = useState<HeadData[]>(() => createDefaultHeads(10, 'm6k'));
 
   // Parchi Photo State
   const [parchiBase64, setParchiBase64] = useState<string | null>(null);
@@ -333,7 +353,7 @@ export default function WindingMaster() {
         if (role === 'winding_operator') {
           setActiveTab('worker');
           // Strict 1-worker to 1-machine lock (Except Phool who has dual access to M1 & M2)
-          let lockedMachine: 'M1' | 'M2' | 'M3' | 'M4' = 'M1';
+          let lockedMachine: 'M1' | 'M2' | 'M3' | 'M4' | 'M5' | 'M6' | 'M7' | 'M8' = 'M1';
           let lockedName = name || 'Phool';
           const lowerName = (name || '').toLowerCase();
           const savedPhoolMach = await AsyncStorage.getItem('phool_active_machine');
@@ -350,7 +370,19 @@ export default function WindingMaster() {
           } else if (lowerName.includes('4')) {
             lockedMachine = 'M4';
             lockedName = 'Operator 4';
-          } else if (machine && ['M1', 'M2', 'M3', 'M4'].includes(machine)) {
+          } else if (lowerName.includes('5')) {
+            lockedMachine = 'M5';
+            lockedName = 'Operator 5';
+          } else if (lowerName.includes('6')) {
+            lockedMachine = 'M6';
+            lockedName = 'Operator 6';
+          } else if (lowerName.includes('7')) {
+            lockedMachine = 'M7';
+            lockedName = 'Operator 7';
+          } else if (lowerName.includes('8')) {
+            lockedMachine = 'M8';
+            lockedName = 'Operator 8';
+          } else if (machine && ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8'].includes(machine)) {
             lockedMachine = machine as any;
           }
           setSelectedMachine(lockedMachine);
@@ -379,6 +411,14 @@ export default function WindingMaster() {
         setOperatorName('Operator 3');
       } else if (selectedMachine === 'M4') {
         setOperatorName('Operator 4');
+      } else if (selectedMachine === 'M5') {
+        setOperatorName('Operator 5');
+      } else if (selectedMachine === 'M6') {
+        setOperatorName('Operator 6');
+      } else if (selectedMachine === 'M7') {
+        setOperatorName('Operator 7');
+      } else if (selectedMachine === 'M8') {
+        setOperatorName('Operator 8');
       }
     }
   }, [selectedMachine, userRole, loggedInUser]);
@@ -421,7 +461,21 @@ export default function WindingMaster() {
     }
   };
 
-  const currentPly = selectedMachine === 'M1' ? '2-ply' : '3-ply';
+  const currentPly = useMemo(() => {
+    if (selectedMachine === 'M1' || selectedMachine === 'M5') return '2-ply';
+    if (selectedMachine === 'M6') {
+      return m6ActiveQuality === 'zip135' ? '3-ply' : '2-ply';
+    }
+    return '3-ply'; // M2, M3, M4, M7, M8
+  }, [selectedMachine, m6ActiveQuality]);
+
+  const currentQualityName = useMemo(() => {
+    if (selectedMachine === 'M1') return 'K800 + Dolly Gold';
+    if (['M2', 'M3', 'M4', 'M7', 'M8'].includes(selectedMachine)) return 'Zip 135 mtr';
+    if (selectedMachine === 'M5') return 'Crown-300 + Dolly Gold + K800';
+    if (selectedMachine === 'M6') return 'Zip 135 + Crown + Dolly + K800';
+    return 'Winding';
+  }, [selectedMachine]);
 
   // Fetch available stock for current machine
   const fetchAvailableStock = async () => {
@@ -467,11 +521,32 @@ export default function WindingMaster() {
                 setM1DollyItems(dollySec.items);
               }
             }
-          } else {
+          } else if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
             const zipSec = (t.sections || []).find((s: any) => s.section_id === 'zip135');
             if (zipSec && zipSec.heads && zipSec.heads.length > 0) {
               setM2Heads(zipSec.heads);
             }
+          } else if (['M7', 'M8'].includes(selectedMachine)) {
+            const zipSec = (t.sections || []).find((s: any) => s.section_id === 'zip135');
+            if (zipSec && zipSec.heads && zipSec.heads.length > 0) {
+              setM7Heads(zipSec.heads);
+            }
+          } else if (selectedMachine === 'M5') {
+            const cSec = (t.sections || []).find((s: any) => s.section_id === 'crown300');
+            const dSec = (t.sections || []).find((s: any) => s.section_id === 'dolly_gold');
+            const kSec = (t.sections || []).find((s: any) => s.section_id === 'k800');
+            if (cSec?.heads?.length) setM5CrownHeads(cSec.heads);
+            if (dSec?.heads?.length) setM5DollyHeads(dSec.heads);
+            if (kSec?.heads?.length) setM5K800Heads(kSec.heads);
+          } else if (selectedMachine === 'M6') {
+            const zSec = (t.sections || []).find((s: any) => s.section_id === 'zip135');
+            const cSec = (t.sections || []).find((s: any) => s.section_id === 'crown300');
+            const dSec = (t.sections || []).find((s: any) => s.section_id === 'dolly_gold');
+            const kSec = (t.sections || []).find((s: any) => s.section_id === 'k800');
+            if (zSec?.heads?.length) setM6ZipHeads(zSec.heads);
+            if (cSec?.heads?.length) setM6CrownHeads(cSec.heads);
+            if (dSec?.heads?.length) setM6DollyHeads(dSec.heads);
+            if (kSec?.heads?.length) setM6K800Heads(kSec.heads);
           }
         } else {
           setActiveTaskId(null);
@@ -483,19 +558,249 @@ export default function WindingMaster() {
           if (selectedMachine === 'M1') {
             setM1K800Items([{ id: '1', shade_number: '', springs: 0 }]);
             setM1DollyItems([{ id: '1', shade_number: '', springs: 0 }]);
-          } else {
-            setM2Heads([
-              { head_number: 1, items: [{ id: '1-1', shade_number: '', springs: 0 }] },
-              { head_number: 2, items: [{ id: '2-1', shade_number: '', springs: 0 }] },
-              { head_number: 3, items: [{ id: '3-1', shade_number: '', springs: 0 }] },
-              { head_number: 4, items: [{ id: '4-1', shade_number: '', springs: 0 }] },
-            ]);
+          } else if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
+            setM2Heads(createDefaultHeads(4, 'm2'));
+          } else if (['M7', 'M8'].includes(selectedMachine)) {
+            setM7Heads(createDefaultHeads(3, 'm7'));
+          } else if (selectedMachine === 'M5') {
+            setM5CrownHeads(createDefaultHeads(6, 'm5c'));
+            setM5DollyHeads(createDefaultHeads(18, 'm5d'));
+            setM5K800Heads(createDefaultHeads(10, 'm5k'));
+          } else if (selectedMachine === 'M6') {
+            setM6ZipHeads(createDefaultHeads(4, 'm6z'));
+            setM6CrownHeads(createDefaultHeads(6, 'm6c'));
+            setM6DollyHeads(createDefaultHeads(18, 'm6d'));
+            setM6K800Heads(createDefaultHeads(10, 'm6k'));
           }
         }
       }
     } catch (e) {
       console.error('Error fetching active task:', e);
     }
+  };
+
+  // Helper calculations for M1
+  const m1K800Springs = m1K800Items.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
+  const m1K800Kg = m1K800Springs * 1.5;
+  const m1K800Wages = m1K800Kg * 12.0;
+
+  const m1DollySprings = m1DollyItems.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
+  const m1DollyKg = m1DollySprings * 1.5;
+  const m1DollyWages = m1DollyKg * 4.5;
+
+  const m1TotalSprings = m1K800Springs + m1DollySprings;
+  const m1TotalKg = m1K800Kg + m1DollyKg;
+  const m1TotalWages = m1K800Wages + m1DollyWages;
+
+  // Helper calculations for M2, M3, M4
+  const m2TotalSprings = m2Heads.reduce(
+    (hAcc, head) => hAcc + head.items.reduce((iAcc, item) => iAcc + (Number(item.springs) || 0), 0),
+    0
+  );
+  const m2TotalKg = m2TotalSprings * 1.5;
+  const m2TotalWages = m2TotalKg * 40.0;
+
+  // Helper calculations for M7, M8 (3 heads, No wages)
+  const m7TotalSprings = m7Heads.reduce(
+    (hAcc, head) => hAcc + head.items.reduce((iAcc, item) => iAcc + (Number(item.springs) || 0), 0),
+    0
+  );
+  const m7TotalKg = m7TotalSprings * 1.5;
+  const m7TotalWages = 0.0;
+
+  // Helper calculations for M5 (Crown-300: 6 heads, Dolly Gold: 18 heads, K-800: 10 heads, No wages)
+  const m5CrownSprings = m5CrownHeads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m5CrownKg = m5CrownSprings * 1.5;
+  const m5DollySprings = m5DollyHeads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m5DollyKg = m5DollySprings * 1.5;
+  const m5K800Springs = m5K800Heads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m5K800Kg = m5K800Springs * 1.5;
+  const m5TotalSprings = m5CrownSprings + m5DollySprings + m5K800Springs;
+  const m5TotalKg = m5TotalSprings * 1.5;
+  const m5TotalWages = 0.0;
+
+  // Helper calculations for M6 (Zip 135, Crown-300, Dolly Gold, K-800, No wages)
+  const m6ZipSprings = m6ZipHeads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m6ZipKg = m6ZipSprings * 1.5;
+  const m6CrownSprings = m6CrownHeads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m6CrownKg = m6CrownSprings * 1.5;
+  const m6DollySprings = m6DollyHeads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m6DollyKg = m6DollySprings * 1.5;
+  const m6K800Springs = m6K800Heads.reduce((hAcc, h) => hAcc + h.items.reduce((iAcc, it) => iAcc + (Number(it.springs) || 0), 0), 0);
+  const m6K800Kg = m6K800Springs * 1.5;
+  const m6TotalSprings = m6ZipSprings + m6CrownSprings + m6DollySprings + m6K800Springs;
+  const m6TotalKg = m6TotalSprings * 1.5;
+  const m6TotalWages = 0.0;
+
+  // Active Machine Form Totals
+  const currentTotalSprings = useMemo(() => {
+    if (selectedMachine === 'M1') return m1TotalSprings;
+    if (['M2', 'M3', 'M4'].includes(selectedMachine)) return m2TotalSprings;
+    if (['M7', 'M8'].includes(selectedMachine)) return m7TotalSprings;
+    if (selectedMachine === 'M5') return m5TotalSprings;
+    if (selectedMachine === 'M6') return m6TotalSprings;
+    return 0;
+  }, [selectedMachine, m1TotalSprings, m2TotalSprings, m7TotalSprings, m5TotalSprings, m6TotalSprings]);
+
+  const currentTotalKg = useMemo(() => {
+    if (selectedMachine === 'M1') return m1TotalKg;
+    if (['M2', 'M3', 'M4'].includes(selectedMachine)) return m2TotalKg;
+    if (['M7', 'M8'].includes(selectedMachine)) return m7TotalKg;
+    if (selectedMachine === 'M5') return m5TotalKg;
+    if (selectedMachine === 'M6') return m6TotalKg;
+    return 0;
+  }, [selectedMachine, m1TotalKg, m2TotalKg, m7TotalKg, m5TotalKg, m6TotalKg]);
+
+  const currentTotalWages = useMemo(() => {
+    if (selectedMachine === 'M1') return m1TotalWages;
+    if (['M2', 'M3', 'M4'].includes(selectedMachine)) return m2TotalWages;
+    return 0.0;
+  }, [selectedMachine, m1TotalWages, m2TotalWages]);
+
+  // Generate standardized sections payload for start / sync / complete task
+  const getSectionsPayload = () => {
+    if (selectedMachine === 'M1') {
+      return [
+        {
+          section_id: 'k800',
+          title: 'Kohinoor 800 mtr (K800)',
+          target_springs: 36,
+          rate_per_kg: 12.0,
+          weight_per_spring: 1.5,
+          items: m1K800Items.filter((i) => i.shade_number && i.springs > 0),
+          total_springs: m1K800Springs,
+          total_kg: m1K800Kg,
+          total_wages: m1K800Wages,
+        },
+        {
+          section_id: 'dolly_gold',
+          title: 'Dolly Gold',
+          target_springs: m1DollyTarget,
+          rate_per_kg: 4.5,
+          weight_per_spring: 1.5,
+          items: m1DollyItems.filter((i) => i.shade_number && i.springs > 0),
+          total_springs: m1DollySprings,
+          total_kg: m1DollyKg,
+          total_wages: m1DollyWages,
+        },
+      ];
+    }
+    if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
+      return [
+        {
+          section_id: 'zip135',
+          title: 'Zip 135 mtr',
+          target_springs: 16,
+          rate_per_kg: 40.0,
+          weight_per_spring: 1.5,
+          heads: m2Heads,
+          total_springs: m2TotalSprings,
+          total_kg: m2TotalKg,
+          total_wages: m2TotalWages,
+        },
+      ];
+    }
+    if (['M7', 'M8'].includes(selectedMachine)) {
+      return [
+        {
+          section_id: 'zip135',
+          title: 'Zip 135 mtr',
+          target_springs: 12,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m7Heads,
+          total_springs: m7TotalSprings,
+          total_kg: m7TotalKg,
+          total_wages: 0.0,
+        },
+      ];
+    }
+    if (selectedMachine === 'M5') {
+      return [
+        {
+          section_id: 'crown300',
+          title: 'Crown-300',
+          target_springs: 24,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m5CrownHeads,
+          total_springs: m5CrownSprings,
+          total_kg: m5CrownKg,
+          total_wages: 0.0,
+        },
+        {
+          section_id: 'dolly_gold',
+          title: 'Dolly Gold',
+          target_springs: 36,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m5DollyHeads,
+          total_springs: m5DollySprings,
+          total_kg: m5DollyKg,
+          total_wages: 0.0,
+        },
+        {
+          section_id: 'k800',
+          title: 'Kohinoor 800 mtr (K800)',
+          target_springs: 40,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m5K800Heads,
+          total_springs: m5K800Springs,
+          total_kg: m5K800Kg,
+          total_wages: 0.0,
+        },
+      ];
+    }
+    if (selectedMachine === 'M6') {
+      return [
+        {
+          section_id: 'zip135',
+          title: 'Zip 135 mtr',
+          target_springs: 16,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m6ZipHeads,
+          total_springs: m6ZipSprings,
+          total_kg: m6ZipKg,
+          total_wages: 0.0,
+        },
+        {
+          section_id: 'crown300',
+          title: 'Crown-300',
+          target_springs: 24,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m6CrownHeads,
+          total_springs: m6CrownSprings,
+          total_kg: m6CrownKg,
+          total_wages: 0.0,
+        },
+        {
+          section_id: 'dolly_gold',
+          title: 'Dolly Gold',
+          target_springs: 36,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m6DollyHeads,
+          total_springs: m6DollySprings,
+          total_kg: m6DollyKg,
+          total_wages: 0.0,
+        },
+        {
+          section_id: 'k800',
+          title: 'Kohinoor 800 mtr (K800)',
+          target_springs: 40,
+          rate_per_kg: 0.0,
+          weight_per_spring: 1.5,
+          heads: m6K800Heads,
+          total_springs: m6K800Springs,
+          total_kg: m6K800Kg,
+          total_wages: 0.0,
+        },
+      ];
+    }
+    return [];
   };
 
   // Trigger stock & active task check on machine/operator/date changes
@@ -509,50 +814,7 @@ export default function WindingMaster() {
   // Sync modifications while task is in-progress
   const syncTaskInProgress = async (customSections?: any[]) => {
     if (taskStatus !== 'in_progress' || !activeTaskId) return;
-
-    let sectionsPayload = customSections;
-    if (!sectionsPayload) {
-      if (selectedMachine === 'M1') {
-        sectionsPayload = [
-          {
-            section_id: 'k800',
-            title: 'Kohinoor 800 mtr (K800)',
-            target_springs: 36,
-            rate_per_kg: 12.0,
-            weight_per_spring: 1.5,
-            items: m1K800Items.filter((i) => i.shade_number && i.springs > 0),
-            total_springs: m1K800Springs,
-            total_kg: m1K800Kg,
-            total_wages: m1K800Wages,
-          },
-          {
-            section_id: 'dolly_gold',
-            title: 'Dolly Gold',
-            target_springs: m1DollyTarget,
-            rate_per_kg: 4.5,
-            weight_per_spring: 1.5,
-            items: m1DollyItems.filter((i) => i.shade_number && i.springs > 0),
-            total_springs: m1DollySprings,
-            total_kg: m1DollyKg,
-            total_wages: m1DollyWages,
-          },
-        ];
-      } else {
-        sectionsPayload = [
-          {
-            section_id: 'zip135',
-            title: 'Zip 135 mtr',
-            target_springs: 16,
-            rate_per_kg: 40.0,
-            weight_per_spring: 1.5,
-            heads: m2Heads,
-            total_springs: m2TotalSprings,
-            total_kg: m2TotalKg,
-            total_wages: m2TotalWages,
-          },
-        ];
-      }
-    }
+    const sectionsPayload = customSections || getSectionsPayload();
 
     try {
       const res = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/winding/tasks/${activeTaskId}/sync-in-progress`, {
@@ -577,10 +839,35 @@ export default function WindingMaster() {
     }
   };
 
+  // Live stock availability helper based on target ply (2-ply or 3-ply)
+  const getShadeAvailable = (shadeNum: string, targetPly?: '2-ply' | '3-ply') => {
+    const cleanSn = shadeNum.replace(/^#/, '');
+    const data = stockMap[cleanSn];
+    if (!data) return 0;
+    const ply = targetPly || shadeTarget?.targetPly || currentPly;
+    if (ply === '2-ply') {
+      return data.springs_2ply !== undefined ? data.springs_2ply : (data.available ?? 0);
+    }
+    return data.springs_3ply !== undefined ? data.springs_3ply : (data.available ?? 0);
+  };
+
   // Open shade picker modal
-  const openShadePicker = (section: 'k800' | 'dolly' | 'head', rowIdx: number, headIdx?: number) => {
+  const openShadePicker = (
+    section: string,
+    rowIdx: number,
+    headIdx?: number,
+    targetPly?: '2-ply' | '3-ply'
+  ) => {
     fetchAvailableStock();
-    setShadeTarget({ section, rowIdx, headIdx });
+    let ply = targetPly;
+    if (!ply) {
+      if (['k800', 'dolly', 'm5_crown', 'm5_dolly', 'm5_k800', 'm6_crown', 'm6_dolly', 'm6_k800'].includes(section)) {
+        ply = '2-ply';
+      } else {
+        ply = '3-ply';
+      }
+    }
+    setShadeTarget({ section, rowIdx, headIdx, targetPly: ply });
     setShadeSearch('');
     setRangeTab('all');
     setMultiSelectMode(false);
@@ -594,11 +881,11 @@ export default function WindingMaster() {
     if (selectedShadesList.includes(cleanSn)) {
       setSelectedShadesList(selectedShadesList.filter((s) => s !== cleanSn));
     } else {
-      const avail = stockMap[cleanSn]?.available ?? 0;
+      const avail = getShadeAvailable(cleanSn, shadeTarget?.targetPly);
       if (avail <= 0) {
         Alert.alert(
-          'Out of Stock',
-          `Shade #${cleanSn} has 0 springs available in ${currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
+          'Out of Stock (स्टॉक नहीं है)',
+          `Shade #${cleanSn} has 0 springs available in ${shadeTarget?.targetPly || currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
         );
         return;
       }
@@ -613,18 +900,19 @@ export default function WindingMaster() {
       return;
     }
 
-    if (shadeTarget.section === 'head' && shadeTarget.headIdx !== undefined) {
-      const hIdx = shadeTarget.headIdx;
-      const updated = [...m2Heads];
-      const n = selectedShadesList.length;
-      const perSpring = Math.max(1, Math.floor(4 / n));
+    const { section, rowIdx, headIdx, targetPly } = shadeTarget;
+    const isDolly = section === 'dolly' || section === 'm5_dolly' || section === 'm6_dolly';
+    const maxHeadCap = isDolly ? 2 : 4;
 
+    if (headIdx !== undefined) {
+      const n = selectedShadesList.length;
+      const perSpring = Math.max(1, Math.floor(maxHeadCap / n));
       const newItems: ShadeItem[] = selectedShadesList.map((sn, idx) => {
         let springs = perSpring;
-        if (idx === n - 1 && n <= 4) {
-          springs = 4 - perSpring * (n - 1);
+        if (idx === n - 1 && n <= maxHeadCap) {
+          springs = maxHeadCap - perSpring * (n - 1);
         }
-        const avail = stockMap[sn]?.available ?? 4;
+        const avail = getShadeAvailable(sn, targetPly);
         const clamped = Math.min(springs > 0 ? springs : 1, Math.max(1, avail));
         return {
           id: `${Date.now()}-${idx}`,
@@ -633,41 +921,46 @@ export default function WindingMaster() {
         };
       });
 
-      updated[hIdx].items = newItems;
-      setM2Heads(updated);
-      if (taskStatus === 'in_progress') syncTaskInProgress();
-    } else if (shadeTarget.section === 'k800') {
+      const updateHeadList = (heads: HeadData[], setter: (h: HeadData[]) => void) => {
+        const updated = [...heads];
+        if (updated[headIdx]) {
+          updated[headIdx].items = newItems;
+          setter(updated);
+        }
+      };
+
+      if (section === 'head') updateHeadList(m2Heads, setM2Heads);
+      else if (section === 'm7_head') updateHeadList(m7Heads, setM7Heads);
+      else if (section === 'm5_crown') updateHeadList(m5CrownHeads, setM5CrownHeads);
+      else if (section === 'm5_dolly') updateHeadList(m5DollyHeads, setM5DollyHeads);
+      else if (section === 'm5_k800') updateHeadList(m5K800Heads, setM5K800Heads);
+      else if (section === 'm6_zip') updateHeadList(m6ZipHeads, setM6ZipHeads);
+      else if (section === 'm6_crown') updateHeadList(m6CrownHeads, setM6CrownHeads);
+      else if (section === 'm6_dolly') updateHeadList(m6DollyHeads, setM6DollyHeads);
+      else if (section === 'm6_k800') updateHeadList(m6K800Heads, setM6K800Heads);
+    } else if (section === 'k800') {
       const updated = [...m1K800Items];
       selectedShadesList.forEach((sn, idx) => {
         if (idx === 0) {
-          updated[shadeTarget.rowIdx].shade_number = sn;
+          updated[rowIdx].shade_number = sn;
         } else {
-          updated.push({
-            id: `${Date.now()}-${idx}`,
-            shade_number: sn,
-            springs: 0,
-          });
+          updated.push({ id: `${Date.now()}-${idx}`, shade_number: sn, springs: 0 });
         }
       });
       setM1K800Items(updated);
-      if (taskStatus === 'in_progress') syncTaskInProgress();
-    } else if (shadeTarget.section === 'dolly') {
+    } else if (section === 'dolly') {
       const updated = [...m1DollyItems];
       selectedShadesList.forEach((sn, idx) => {
         if (idx === 0) {
-          updated[shadeTarget.rowIdx].shade_number = sn;
+          updated[rowIdx].shade_number = sn;
         } else {
-          updated.push({
-            id: `${Date.now()}-${idx}`,
-            shade_number: sn,
-            springs: 0,
-          });
+          updated.push({ id: `${Date.now()}-${idx}`, shade_number: sn, springs: 0 });
         }
       });
       setM1DollyItems(updated);
-      if (taskStatus === 'in_progress') syncTaskInProgress();
     }
 
+    if (taskStatus === 'in_progress') syncTaskInProgress();
     setShadePickerVisible(false);
     setShadeTarget(null);
     setSelectedShadesList([]);
@@ -678,31 +971,44 @@ export default function WindingMaster() {
   const handleSelectShade = (shadeNum: string) => {
     if (!shadeTarget) return;
     const cleanSn = shadeNum.replace(/^#/, '');
-    const avail = stockMap[cleanSn]?.available ?? 0;
+    const avail = getShadeAvailable(cleanSn, shadeTarget.targetPly);
     if (avail <= 0) {
       Alert.alert(
         'Out of Stock (स्टॉक नहीं है)',
-        `Shade #${cleanSn} does not have any springs available in ${currentPly} stock! (स्टॉक में 0 स्प्रिंग्स हैं)`
+        `Shade #${cleanSn} does not have any springs available in ${shadeTarget.targetPly || currentPly} stock! (स्टॉक में 0 स्प्रिंग्स हैं)`
       );
       return;
     }
 
-    if (shadeTarget.section === 'k800') {
+    const { section, rowIdx, headIdx } = shadeTarget;
+    if (section === 'k800') {
       const updated = [...m1K800Items];
-      updated[shadeTarget.rowIdx].shade_number = cleanSn;
+      updated[rowIdx].shade_number = cleanSn;
       setM1K800Items(updated);
-      if (taskStatus === 'in_progress') syncTaskInProgress();
-    } else if (shadeTarget.section === 'dolly') {
+    } else if (section === 'dolly') {
       const updated = [...m1DollyItems];
-      updated[shadeTarget.rowIdx].shade_number = cleanSn;
+      updated[rowIdx].shade_number = cleanSn;
       setM1DollyItems(updated);
-      if (taskStatus === 'in_progress') syncTaskInProgress();
-    } else if (shadeTarget.section === 'head' && shadeTarget.headIdx !== undefined) {
-      const updated = [...m2Heads];
-      updated[shadeTarget.headIdx].items[shadeTarget.rowIdx].shade_number = cleanSn;
-      setM2Heads(updated);
-      if (taskStatus === 'in_progress') syncTaskInProgress();
+    } else if (headIdx !== undefined) {
+      const updateHead = (heads: HeadData[], setter: (h: HeadData[]) => void) => {
+        const updated = [...heads];
+        if (updated[headIdx] && updated[headIdx].items[rowIdx]) {
+          updated[headIdx].items[rowIdx].shade_number = cleanSn;
+          setter(updated);
+        }
+      };
+      if (section === 'head') updateHead(m2Heads, setM2Heads);
+      else if (section === 'm7_head') updateHead(m7Heads, setM7Heads);
+      else if (section === 'm5_crown') updateHead(m5CrownHeads, setM5CrownHeads);
+      else if (section === 'm5_dolly') updateHead(m5DollyHeads, setM5DollyHeads);
+      else if (section === 'm5_k800') updateHead(m5K800Heads, setM5K800Heads);
+      else if (section === 'm6_zip') updateHead(m6ZipHeads, setM6ZipHeads);
+      else if (section === 'm6_crown') updateHead(m6CrownHeads, setM6CrownHeads);
+      else if (section === 'm6_dolly') updateHead(m6DollyHeads, setM6DollyHeads);
+      else if (section === 'm6_k800') updateHead(m6K800Heads, setM6K800Heads);
     }
+
+    if (taskStatus === 'in_progress') syncTaskInProgress();
     setShadePickerVisible(false);
     setShadeTarget(null);
   };
@@ -710,7 +1016,7 @@ export default function WindingMaster() {
   // Filter shades #1 to #460 based on search query, range tab, and in-stock toggle
   const filteredShades = useMemo(() => {
     return ALL_SHADES_LIST.filter((sn) => {
-      const avail = stockMap[sn]?.available ?? 0;
+      const avail = getShadeAvailable(sn, shadeTarget?.targetPly);
       if (inStockOnlyFilter && avail <= 0) return false;
 
       const num = parseInt(sn, 10);
@@ -721,20 +1027,20 @@ export default function WindingMaster() {
       if (rangeTab === '401-460' && (num < 401 || num > 460)) return false;
 
       if (shadeSearch.trim()) {
-        const q = shadeSearch.trim().replace(/^#/, '');
-        return sn.includes(q);
+        const q = shadeSearch.trim().toLowerCase().replace(/^#/, '');
+        return sn.toLowerCase().includes(q);
       }
       return true;
     });
-  }, [stockMap, inStockOnlyFilter, rangeTab, shadeSearch]);
+  }, [stockMap, inStockOnlyFilter, rangeTab, shadeSearch, shadeTarget]);
 
   const inStockCount = useMemo(() => {
     let count = 0;
     for (const sn of ALL_SHADES_LIST) {
-      if ((stockMap[sn]?.available ?? 0) > 0) count++;
+      if (getShadeAvailable(sn, shadeTarget?.targetPly) > 0) count++;
     }
     return count;
-  }, [stockMap]);
+  }, [stockMap, shadeTarget]);
 
   // Load existing tasks on mount or date change
   useEffect(() => {
@@ -772,31 +1078,6 @@ export default function WindingMaster() {
     });
   }, [tasksList, operatorName, selectedMachine]);
 
-  // Helper calculations for M1
-  const m1K800Springs = m1K800Items.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
-  const m1K800Kg = m1K800Springs * 1.5;
-  const m1K800Wages = m1K800Kg * 12.0;
-
-  const m1DollySprings = m1DollyItems.reduce((acc, curr) => acc + (Number(curr.springs) || 0), 0);
-  const m1DollyKg = m1DollySprings * 1.5;
-  const m1DollyWages = m1DollyKg * 4.5;
-
-  const m1TotalSprings = m1K800Springs + m1DollySprings;
-  const m1TotalKg = m1K800Kg + m1DollyKg;
-  const m1TotalWages = m1K800Wages + m1DollyWages;
-
-  // Helper calculations for M2, M3, M4
-  const m2TotalSprings = m2Heads.reduce(
-    (hAcc, head) => hAcc + head.items.reduce((iAcc, item) => iAcc + (Number(item.springs) || 0), 0),
-    0
-  );
-  const m2TotalKg = m2TotalSprings * 1.5;
-  const m2TotalWages = m2TotalKg * 40.0;
-
-  // Active Machine Form Totals
-  const currentTotalSprings = selectedMachine === 'M1' ? m1TotalSprings : m2TotalSprings;
-  const currentTotalKg = selectedMachine === 'M1' ? m1TotalKg : m2TotalKg;
-  const currentTotalWages = selectedMachine === 'M1' ? m1TotalWages : m2TotalWages;
 
   // Operator's total production & wages for today across all their recorded & active tasks
   const operatorDayTotals = useMemo(() => {
@@ -947,11 +1228,27 @@ export default function WindingMaster() {
   // Start Task Handler
   const handleStartTask = async () => {
     // Validate at least one shade with springs > 0
-    const hasValidItems =
-      selectedMachine === 'M1'
-        ? m1K800Items.some((i) => i.shade_number && i.springs > 0) ||
-          m1DollyItems.some((i) => i.shade_number && i.springs > 0)
-        : m2Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+    let hasValidItems = false;
+    if (selectedMachine === 'M1') {
+      hasValidItems =
+        m1K800Items.some((i) => i.shade_number && i.springs > 0) ||
+        m1DollyItems.some((i) => i.shade_number && i.springs > 0);
+    } else if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
+      hasValidItems = m2Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+    } else if (['M7', 'M8'].includes(selectedMachine)) {
+      hasValidItems = m7Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+    } else if (selectedMachine === 'M5') {
+      hasValidItems =
+        m5CrownHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
+        m5DollyHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
+        m5K800Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+    } else if (selectedMachine === 'M6') {
+      hasValidItems =
+        m6ZipHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
+        m6CrownHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
+        m6DollyHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
+        m6K800Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+    }
 
     if (!hasValidItems) {
       Alert.alert('Selection Required', 'कृपया टास्क शुरू करने से पहले कम से कम एक शेड नंबर और स्प्रिंग भरें!');
@@ -967,50 +1264,82 @@ export default function WindingMaster() {
       return;
     }
 
-    // 2. Validate Per Head Limit for M2, M3, M4 (max 4 per head)
-    if (selectedMachine !== 'M1') {
-      for (const h of m2Heads) {
+    // 2. Validate Per Head Limit for assigned machine
+    const checkHeadLimits = (heads: HeadData[], maxSp: number, name: string) => {
+      for (const h of heads) {
         const headSum = h.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
-        if (headSum > 4) {
-          const hTitle = h.head_number === 1 ? '1st' : h.head_number === 2 ? '2nd' : h.head_number === 3 ? '3rd' : '4th';
+        if (headSum > maxSp) {
           Alert.alert(
-            'Per Head Limit (अधिकतम 4 स्प्रिंग)',
-            `${hTitle} Head mein 4 se jyada springs nahi ho sakti! (Currently: ${headSum} Springs)`
+            `Per Head Limit (अधिकतम ${maxSp} स्प्रिंग)`,
+            `${name} Head #${h.head_number} mein ${maxSp} se jyada springs nahi ho sakti! (Currently: ${headSum} Springs)`
           );
-          return;
+          return false;
         }
       }
+      return true;
+    };
+
+    if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
+      if (!checkHeadLimits(m2Heads, 4, 'Zip 135')) return;
+    } else if (['M7', 'M8'].includes(selectedMachine)) {
+      if (!checkHeadLimits(m7Heads, 4, 'Zip 135')) return;
+    } else if (selectedMachine === 'M5') {
+      if (!checkHeadLimits(m5CrownHeads, 4, 'Crown-300')) return;
+      if (!checkHeadLimits(m5DollyHeads, 2, 'Dolly Gold')) return;
+      if (!checkHeadLimits(m5K800Heads, 4, 'K-800')) return;
+    } else if (selectedMachine === 'M6') {
+      if (!checkHeadLimits(m6ZipHeads, 4, 'Zip 135')) return;
+      if (!checkHeadLimits(m6CrownHeads, 4, 'Crown-300')) return;
+      if (!checkHeadLimits(m6DollyHeads, 2, 'Dolly Gold')) return;
+      if (!checkHeadLimits(m6K800Heads, 4, 'K-800')) return;
     }
 
-    // Validate available stock for each shade
-    const itemsToCheck: { sn: string; springs: number }[] = [];
+    // Validate available stock for each shade & ply
+    const itemsToCheck: { sn: string; springs: number; ply: '2-ply' | '3-ply' }[] = [];
     if (selectedMachine === 'M1') {
       m1K800Items.forEach((i) => {
-        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs) });
+        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' });
       });
       m1DollyItems.forEach((i) => {
-        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs) });
+        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' });
       });
-    } else {
+    } else if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
       m2Heads.forEach((h) => {
         h.items.forEach((i) => {
-          if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs) });
+          if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' });
         });
       });
+    } else if (['M7', 'M8'].includes(selectedMachine)) {
+      m7Heads.forEach((h) => {
+        h.items.forEach((i) => {
+          if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' });
+        });
+      });
+    } else if (selectedMachine === 'M5') {
+      m5CrownHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m5DollyHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m5K800Heads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+    } else if (selectedMachine === 'M6') {
+      m6ZipHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' }); }));
+      m6CrownHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m6DollyHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m6K800Heads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
     }
 
-    const sumMap: { [sn: string]: number } = {};
+    const sumMap: { [key: string]: { sn: string; springs: number; ply: '2-ply' | '3-ply' } } = {};
     for (const it of itemsToCheck) {
-      sumMap[it.sn] = (sumMap[it.sn] || 0) + it.springs;
+      const k = `${it.sn}_${it.ply}`;
+      if (!sumMap[k]) sumMap[k] = { sn: it.sn, springs: 0, ply: it.ply };
+      sumMap[k].springs += it.springs;
     }
 
-    for (const sn of Object.keys(sumMap)) {
-      const needed = sumMap[sn];
-      const avail = stockMap[sn]?.available ?? 0;
-      if (needed > avail) {
+    for (const k of Object.keys(sumMap)) {
+      const item = sumMap[k];
+      const avail = getShadeAvailable(item.sn, item.ply);
+      if (item.springs > avail) {
         Alert.alert(
           'Insufficient Stock (स्टॉक कम है)',
-          `Shade #${sn} ke liye sirf ${avail} springs available hain (${currentPly}), par aapne ${needed} dali hain!`
+          `Shade #${item.sn} ke liye sirf ${avail} springs available hain (${item.ply}), par aapne ${item.springs} dali hain!`
         );
         return;
       }
@@ -1019,53 +1348,13 @@ export default function WindingMaster() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-    let sectionsPayload: any[] = [];
-    if (selectedMachine === 'M1') {
-      sectionsPayload = [
-        {
-          section_id: 'k800',
-          title: 'Kohinoor 800 mtr (K800)',
-          target_springs: 36,
-          rate_per_kg: 12.0,
-          weight_per_spring: 1.5,
-          items: m1K800Items.filter((i) => i.shade_number && i.springs > 0),
-          total_springs: m1K800Springs,
-          total_kg: m1K800Kg,
-          total_wages: m1K800Wages,
-        },
-        {
-          section_id: 'dolly_gold',
-          title: 'Dolly Gold',
-          target_springs: m1DollyTarget,
-          rate_per_kg: 4.5,
-          weight_per_spring: 1.5,
-          items: m1DollyItems.filter((i) => i.shade_number && i.springs > 0),
-          total_springs: m1DollySprings,
-          total_kg: m1DollyKg,
-          total_wages: m1DollyWages,
-        },
-      ];
-    } else {
-      sectionsPayload = [
-        {
-          section_id: 'zip135',
-          title: 'Zip 135 mtr',
-          target_springs: 16,
-          rate_per_kg: 40.0,
-          weight_per_spring: 1.5,
-          heads: m2Heads,
-          total_springs: m2TotalSprings,
-          total_kg: m2TotalKg,
-          total_wages: m2TotalWages,
-        },
-      ];
-    }
+    const sectionsPayload = getSectionsPayload();
 
     const payload = {
       date: taskDate,
       machine_id: selectedMachine,
       operator_name: operatorName,
-      quality_name: selectedMachine === 'M1' ? 'K800 + Dolly Gold' : 'Zip 135 mtr',
+      quality_name: currentQualityName,
       start_time: timeStr,
       sections: sectionsPayload,
       total_springs: currentTotalSprings,
@@ -1165,7 +1454,8 @@ export default function WindingMaster() {
             date: taskDate,
             machine_id: selectedMachine,
             operator_name: operatorName,
-            quality_name: selectedMachine === 'M1' ? 'K800 + Dolly Gold' : 'Zip 135 mtr',
+            quality_name: currentQualityName,
+            sections: getSectionsPayload(),
             status: 'completed',
             start_time: startTime || endTimeStr,
             end_time: endTimeStr,
@@ -1251,6 +1541,274 @@ export default function WindingMaster() {
     if (taskStatus === 'in_progress') syncTaskInProgress();
   };
 
+  // Universal Heads Format Section Renderer (used for M2–M8)
+  const renderHeadsFormatCard = (
+    title: string,
+    subtitle: string,
+    maxPerHead: number,
+    targetSprings: number,
+    totalSprings: number,
+    totalKg: number,
+    totalWages: number,
+    heads: HeadData[],
+    setHeads: (h: HeadData[]) => void,
+    sectionKey: string,
+    targetPly: '2-ply' | '3-ply'
+  ) => {
+    return (
+      <View style={[styles.formatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.formatHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.formatTitle, { color: colors.text }]}>{title}</Text>
+            <Text style={[styles.formatSubtitle, { color: colors.textSecondary }]}>{subtitle}</Text>
+          </View>
+          <View style={[styles.springsCountBadge, { backgroundColor: '#FAF5FF', borderColor: '#D6BCFA' }]}>
+            <Text style={[styles.springsCountText, { color: '#6B46C1' }]}>
+              {totalSprings} / {targetSprings} Springs
+            </Text>
+          </View>
+        </View>
+
+        {/* Heads Grid */}
+        {heads.map((head, hIdx) => {
+          const headSum = head.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
+          const isFull = headSum === maxPerHead;
+
+          return (
+            <View
+              key={head.head_number}
+              style={[
+                styles.headCard,
+                { backgroundColor: colors.inputBackground, borderColor: isFull ? '#38A169' : colors.border },
+              ]}
+            >
+              <View style={styles.headCardHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.headCardTitle, { color: colors.text }]}>
+                    📍 Head {head.head_number}
+                  </Text>
+                  <View
+                    style={{
+                      backgroundColor: headSum === maxPerHead ? '#C6F6D5' : headSum > maxPerHead ? '#FED7D7' : '#EBF8FF',
+                      paddingHorizontal: 6,
+                      paddingVertical: 1,
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 'bold',
+                        color: headSum === maxPerHead ? '#22543D' : headSum > maxPerHead ? '#C53030' : '#2B6CB0',
+                      }}
+                    >
+                      Max {maxPerHead}
+                    </Text>
+                  </View>
+                </View>
+                <Text
+                  style={[
+                    styles.headSumBadge,
+                    isFull ? { color: '#38A169', fontWeight: 'bold' } : { color: colors.textSecondary },
+                  ]}
+                >
+                  {headSum} / {maxPerHead} Springs {isFull ? '✅' : ''}
+                </Text>
+              </View>
+
+              {/* Head Columns Header */}
+              <View style={[styles.headRowHeader, { borderBottomColor: colors.border }]}>
+                <Text style={[styles.headRowHeaderCol, { flex: 1, color: colors.textSecondary }]}>
+                  Shade No. (#1–460)
+                </Text>
+                <Text
+                  style={[
+                    styles.headRowHeaderCol,
+                    { width: 72, textAlign: 'center', color: colors.textSecondary },
+                  ]}
+                >
+                  Springs
+                </Text>
+                <View style={styles.spacerBtn} />
+              </View>
+
+              {head.items.map((it, iIdx) => {
+                const cleanSn = it.shade_number ? it.shade_number.replace(/^#/, '') : '';
+                const availStock = getShadeAvailable(cleanSn, targetPly);
+                const prevQty = Number(it.springs) || 0;
+                const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
+
+                return (
+                  <View key={it.id} style={{ marginBottom: 10 }}>
+                    <View style={styles.entryRow}>
+                      <View
+                        style={[
+                          styles.shadeCompoundBox,
+                          { backgroundColor: colors.card, borderColor: colors.border },
+                        ]}
+                      >
+                        <TextInput
+                          style={[styles.shadeCompoundInput, { color: colors.text }]}
+                          placeholder="Shade #1–#460"
+                          placeholderTextColor={colors.textSecondary}
+                          value={it.shade_number}
+                          keyboardType="numeric"
+                          editable={taskStatus !== 'completed'}
+                          onChangeText={(val) => {
+                            const updated = [...heads];
+                            updated[hIdx].items[iIdx].shade_number = val.replace(/^#/, '');
+                            setHeads(updated);
+                          }}
+                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.shadeDropdownBtn,
+                            {
+                              backgroundColor: 'rgba(128, 90, 213, 0.15)',
+                              borderLeftColor: colors.border,
+                              opacity: taskStatus === 'completed' ? 0.5 : 1,
+                            },
+                          ]}
+                          disabled={taskStatus === 'completed'}
+                          onPress={() => openShadePicker(sectionKey, iIdx, hIdx, targetPly)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={[
+                          styles.springInput,
+                          { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
+                        ]}
+                        keyboardType="numeric"
+                        placeholder="0"
+                        placeholderTextColor={colors.textSecondary}
+                        value={it.springs ? it.springs.toString() : ''}
+                        editable={taskStatus !== 'completed'}
+                        onChangeText={(val) => {
+                          let entered = parseInt(val) || 0;
+                          const otherSpringsInHead = head.items.reduce(
+                            (sum, item, idx) => (idx !== iIdx ? sum + (Number(item.springs) || 0) : sum),
+                            0
+                          );
+                          const maxHeadCapacity = Math.max(0, maxPerHead - otherSpringsInHead);
+
+                          if (entered > maxHeadCapacity) {
+                            Alert.alert(
+                              `Per Head Limit (अधिकतम ${maxPerHead} स्प्रिंग)`,
+                              `Head #${head.head_number} mein ${maxPerHead} se jyada springs nahi le sakte!\nइस हेड में अधिकतम ${maxHeadCapacity} स्प्रिंग ही ले सकते हैं।`
+                            );
+                            entered = maxHeadCapacity;
+                          }
+
+                          if (cleanSn && entered > maxAllowed) {
+                            Alert.alert(
+                              'Maximum Stock Limit',
+                              `Shade #${cleanSn} has only ${maxAllowed} springs available in ${targetPly} stock!`
+                            );
+                            entered = Math.min(entered, maxAllowed);
+                          }
+                          const updated = [...heads];
+                          updated[hIdx].items[iIdx].springs = entered;
+                          setHeads(updated);
+                          if (taskStatus === 'in_progress') syncTaskInProgress();
+                        }}
+                      />
+                      {taskStatus !== 'completed' && head.items.length > 1 ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            const updated = [...heads];
+                            updated[hIdx].items.splice(iIdx, 1);
+                            setHeads(updated);
+                            if (taskStatus === 'in_progress') syncTaskInProgress();
+                          }}
+                          style={styles.deleteRowBtn}
+                        >
+                          <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.spacerBtn} />
+                      )}
+                    </View>
+
+                    {/* Stock in Hand Badge */}
+                    {cleanSn ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, marginLeft: 2 }}>
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: availStock > 0 ? '#E6FFFA' : '#FFF5F5',
+                            borderColor: availStock > 0 ? '#81E6D9' : '#FEB2B2',
+                            borderWidth: 1,
+                            paddingHorizontal: 8,
+                            paddingVertical: 3,
+                            borderRadius: 6,
+                            gap: 4,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 'bold',
+                              color: availStock > 0 ? '#234E52' : '#9B2C2C',
+                            }}
+                          >
+                            {availStock > 0
+                              ? `📦 Available: ${availStock} Springs (${targetPly} Stock)`
+                              : `⚠️ 0 Springs in ${targetPly} Stock (Out of Stock)`}
+                          </Text>
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+
+              {taskStatus !== 'completed' && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (headSum >= maxPerHead) {
+                      Alert.alert(
+                        `Head Full (अधिकतम ${maxPerHead} स्प्रिंग)`,
+                        `Head #${head.head_number} mein already ${maxPerHead} springs poori ho chuki hain!`
+                      );
+                      return;
+                    }
+                    const updated = [...heads];
+                    updated[hIdx].items.push({ id: Date.now().toString(), shade_number: '', springs: 0 });
+                    setHeads(updated);
+                  }}
+                  style={[
+                    styles.addHeadShadeBtn,
+                    {
+                      borderColor: colors.primary,
+                      backgroundColor: colors.card,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.addHeadShadeBtnText, { color: colors.primary }]}>
+                    + Add Shade in Head #{head.head_number} (और शेड जोड़ें)
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
+
+        <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground, marginTop: 14 }]}>
+          <Text style={[styles.summaryText, { color: colors.text }]}>
+            Weight: <Text style={{ fontWeight: 'bold' }}>{totalKg.toFixed(1)} KG</Text>
+          </Text>
+          <Text style={[styles.summaryText, { color: colors.primary }]}>
+            Wages: <Text style={{ fontWeight: 'bold' }}>₹{totalWages.toFixed(2)}</Text>
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   if (userRole === null) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
@@ -1304,13 +1862,13 @@ export default function WindingMaster() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>🧵 Winding Master</Text>
             <View style={[styles.badge, { backgroundColor: '#805AD5' }]}>
-              <Text style={styles.badgeText}>M1–M4</Text>
+              <Text style={styles.badgeText}>M1–M8</Text>
             </View>
           </View>
           <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
             {userRole === 'winding_operator'
               ? `👤 ${operatorName} (${selectedMachine}) • टास्क & पर्ची अपलोड`
-              : '📋 मास्टर डेली रजिस्टर (Daily Register) • ऑल मशीन M1–M4'}
+              : '📋 मास्टर डेली रजिस्टर (Daily Register) • ऑल मशीन M1–M8'}
           </Text>
         </View>
         {userRole !== 'winding_operator' && (
@@ -1340,6 +1898,12 @@ export default function WindingMaster() {
                   <Text style={{ fontSize: 12, color: colors.textSecondary }}>
                     {selectedMachine === 'M1'
                       ? 'Kohinoor 800 mtr (K800) + Dolly Gold • 2-ply Springs'
+                      : selectedMachine === 'M5'
+                      ? 'Crown-300 (6 Heads), Dolly (18 Heads), K800 (10 Heads) • 2-ply • No Wages'
+                      : selectedMachine === 'M6'
+                      ? 'Zip 135 (4 Heads), Crown-300 (6 Heads), Dolly (18 Heads), K800 (10 Heads) • No Wages'
+                      : ['M7', 'M8'].includes(selectedMachine)
+                      ? `${selectedMachine} - Zip 135 mtr (3 Heads) • 3-ply Springs • No Wages`
                       : `${selectedMachine} - Zip 135 mtr (4 Heads) • 3-ply Springs`}
                   </Text>
                 </View>
@@ -1873,250 +2437,227 @@ export default function WindingMaster() {
                 </View>
               </View>
             </View>
-          ) : (
+          ) : ['M2', 'M3', 'M4'].includes(selectedMachine) ? (
             /* ============================================================== */
             /* MACHINES M2, M3, M4 FORMAT: Zip 135 mtr (4 Heads × 4 Springs)   */
             /* ============================================================== */
             <View>
-              <View style={[styles.formatCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <View style={styles.formatHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.formatTitle, { color: colors.text }]}>
-                      ⚡ {selectedMachine} — Zip 135 mtr
-                    </Text>
-                    <Text style={[styles.formatSubtitle, { color: colors.textSecondary }]}>
-                      4 Heads • 4 Springs / Head = 16 Springs (24 KG) • Rate: ₹40.00 / KG
-                    </Text>
-                  </View>
-                  <View style={[styles.springsCountBadge, { backgroundColor: '#FAF5FF', borderColor: '#D6BCFA' }]}>
-                    <Text style={[styles.springsCountText, { color: '#6B46C1' }]}>
-                      {m2TotalSprings} / 16 Springs
-                    </Text>
-                  </View>
-                </View>
-
-                {/* 4 Heads Grid */}
-                {m2Heads.map((head, hIdx) => {
-                  const headSum = head.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
-                  const isFull = headSum === 4;
-
-                  return (
-                    <View
-                      key={head.head_number}
-                      style={[
-                        styles.headCard,
-                        { backgroundColor: colors.inputBackground, borderColor: isFull ? '#38A169' : colors.border },
-                      ]}
-                    >
-                      <View style={styles.headCardHeader}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={[styles.headCardTitle, { color: colors.text }]}>
-                            📍 {head.head_number}
-                            {head.head_number === 1 ? 'st' : head.head_number === 2 ? 'nd' : head.head_number === 3 ? 'rd' : 'th'} Head
-                          </Text>
-                          <View
-                            style={{
-                              backgroundColor: headSum === 4 ? '#C6F6D5' : headSum > 4 ? '#FED7D7' : '#EBF8FF',
-                              paddingHorizontal: 6,
-                              paddingVertical: 1,
-                              borderRadius: 4,
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 10,
-                                fontWeight: 'bold',
-                                color: headSum === 4 ? '#22543D' : headSum > 4 ? '#C53030' : '#2B6CB0',
-                              }}
-                            >
-                              Max 4
-                            </Text>
-                          </View>
-                        </View>
-                        <Text
-                          style={[
-                            styles.headSumBadge,
-                            isFull ? { color: '#38A169', fontWeight: 'bold' } : { color: colors.textSecondary },
-                          ]}
-                        >
-                          {headSum} / 4 Springs {isFull ? '✅' : ''}
+              {renderHeadsFormatCard(
+                `⚡ ${selectedMachine} — Zip 135 mtr`,
+                '4 Heads • 4 Springs / Head = 16 Springs (24 KG) • Rate: ₹40.00 / KG',
+                4,
+                16,
+                m2TotalSprings,
+                m2TotalKg,
+                m2TotalWages,
+                m2Heads,
+                setM2Heads,
+                'head',
+                '3-ply'
+              )}
+            </View>
+          ) : ['M7', 'M8'].includes(selectedMachine) ? (
+            /* ============================================================== */
+            /* MACHINES M7, M8 FORMAT: Zip 135 mtr (3 Heads × 4 Springs)       */
+            /* ============================================================== */
+            <View>
+              {renderHeadsFormatCard(
+                `⚡ ${selectedMachine} — Zip 135 mtr`,
+                '3 Heads • Per head max 4 springs (Total 12 springs) • 1.5 KG each = 18 KG • No wages (₹0.00)',
+                4,
+                12,
+                m7TotalSprings,
+                m7TotalKg,
+                0.0,
+                m7Heads,
+                setM7Heads,
+                'm7_head',
+                '3-ply'
+              )}
+            </View>
+          ) : selectedMachine === 'M5' ? (
+            /* ============================================================== */
+            /* MACHINE M5 FORMAT: Crown-300, Dolly Gold, K-800 (No Wages)     */
+            /* ============================================================== */
+            <View>
+              {/* Quality Switcher Tabs */}
+              <View style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  {[
+                    { key: 'crown300', label: '👑 Crown-300', heads: '6 Heads', sp: '24 Sp (36 KG)' },
+                    { key: 'dolly_gold', label: '🧵 Dolly Gold', heads: '18 Heads', sp: '36 Sp (54 KG)' },
+                    { key: 'k800', label: '🧶 K-800', heads: '10 Heads', sp: '40 Sp (60 KG)' },
+                  ].map((q) => {
+                    const active = m5ActiveQuality === q.key;
+                    return (
+                      <TouchableOpacity
+                        key={q.key}
+                        onPress={() => setM5ActiveQuality(q.key as any)}
+                        style={[
+                          styles.modeTabBtn,
+                          { flex: 1, paddingVertical: 10, paddingHorizontal: 6 },
+                          active
+                            ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                            : { backgroundColor: colors.card, borderColor: colors.border },
+                        ]}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: active ? '#fff' : colors.text, textAlign: 'center' }}>
+                          {q.label}
                         </Text>
-                      </View>
-
-                      {/* Head Columns Header */}
-                      <View style={[styles.headRowHeader, { borderBottomColor: colors.border }]}>
-                        <Text style={[styles.headRowHeaderCol, { flex: 1, color: colors.textSecondary }]}>
-                          Shade No. (#1–460)
+                        <Text style={{ fontSize: 10, color: active ? '#E2E8F0' : colors.textSecondary, textAlign: 'center', marginTop: 2 }}>
+                          {q.heads} • {q.sp}
                         </Text>
-                        <Text
-                          style={[
-                            styles.headRowHeaderCol,
-                            { width: 72, textAlign: 'center', color: colors.textSecondary },
-                          ]}
-                        >
-                          Springs
-                        </Text>
-                        <View style={styles.spacerBtn} />
-                      </View>
-
-                      {head.items.map((it, iIdx) => {
-                        const cleanSn = it.shade_number ? it.shade_number.replace(/^#/, '') : '';
-                        const availStock = stockMap[cleanSn]?.available ?? 0;
-                        const prevQty = Number(it.springs) || 0;
-                        const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
-
-                        return (
-                          <View key={it.id} style={{ marginBottom: 10 }}>
-                            <View style={styles.entryRow}>
-                              <View
-                                style={[
-                                  styles.shadeCompoundBox,
-                                  { backgroundColor: colors.card, borderColor: colors.border },
-                                ]}
-                              >
-                                <TextInput
-                                  style={[styles.shadeCompoundInput, { color: colors.text }]}
-                                  placeholder="Shade #1–#460"
-                                  placeholderTextColor={colors.textSecondary}
-                                  value={it.shade_number}
-                                  keyboardType="numeric"
-                                  editable={taskStatus !== 'completed'}
-                                  onChangeText={(val) => {
-                                    const updated = [...m2Heads];
-                                    updated[hIdx].items[iIdx].shade_number = val.replace(/^#/, '');
-                                    setM2Heads(updated);
-                                  }}
-                                />
-                                <TouchableOpacity
-                                  style={[
-                                    styles.shadeDropdownBtn,
-                                    {
-                                      backgroundColor: 'rgba(128, 90, 213, 0.15)',
-                                      borderLeftColor: colors.border,
-                                      opacity: taskStatus === 'completed' ? 0.5 : 1,
-                                    },
-                                  ]}
-                                  disabled={taskStatus === 'completed'}
-                                  onPress={() => openShadePicker('head', iIdx, hIdx)}
-                                  activeOpacity={0.7}
-                                >
-                                  <Text style={{ fontSize: 13, color: colors.primary, fontWeight: 'bold' }}>▼</Text>
-                                </TouchableOpacity>
-                              </View>
-                              <TextInput
-                                style={[
-                                  styles.springInput,
-                                  { backgroundColor: colors.card, color: colors.text, borderColor: colors.border },
-                                ]}
-                                keyboardType="numeric"
-                                placeholder="0"
-                                placeholderTextColor={colors.textSecondary}
-                                value={it.springs ? it.springs.toString() : ''}
-                                editable={taskStatus !== 'completed'}
-                                onChangeText={(val) => {
-                                  let entered = parseInt(val) || 0;
-
-                                  // 1. Max 4 springs per head limit
-                                  const otherSpringsInHead = head.items.reduce(
-                                    (sum, item, idx) => idx !== iIdx ? sum + (Number(item.springs) || 0) : sum,
-                                    0
-                                  );
-                                  const maxHeadCapacity = Math.max(0, 4 - otherSpringsInHead);
-
-                                  if (entered > maxHeadCapacity) {
-                                    const hTitle = head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th';
-                                    Alert.alert(
-                                      'Per Head Limit (अधिकतम 4 स्प्रिंग)',
-                                      `${hTitle} Head mein 4 se jyada springs nahi le sakte!\nइस हेड में अधिकतम ${maxHeadCapacity} स्प्रिंग ही ले सकते हैं।`
-                                    );
-                                    entered = maxHeadCapacity;
-                                  }
-
-                                  // 2. Maximum stock limit
-                                  if (cleanSn && entered > maxAllowed) {
-                                    Alert.alert(
-                                      'Maximum Stock Limit',
-                                      `Shade #${cleanSn} has only ${maxAllowed} springs available in ${currentPly} stock!`
-                                    );
-                                    entered = Math.min(entered, maxAllowed);
-                                  }
-                                  const updated = [...m2Heads];
-                                  updated[hIdx].items[iIdx].springs = entered;
-                                  setM2Heads(updated);
-                                  if (taskStatus === 'in_progress') syncTaskInProgress();
-                                }}
-                              />
-                              {taskStatus !== 'completed' && head.items.length > 1 ? (
-                                <TouchableOpacity
-                                  onPress={() => removeHeadItem(hIdx, iIdx)}
-                                  style={styles.deleteRowBtn}
-                                >
-                                  <Text style={{ color: colors.danger, fontSize: 16 }}>✕</Text>
-                                </TouchableOpacity>
-                              ) : (
-                                <View style={styles.spacerBtn} />
-                              )}
-                            </View>
-
-                            {/* Stock in Hand Badge */}
-                            {cleanSn ? (
-                              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3, marginLeft: 2 }}>
-                                <View
-                                  style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    backgroundColor: availStock > 0 ? '#E6FFFA' : '#FFF5F5',
-                                    borderColor: availStock > 0 ? '#81E6D9' : '#FEB2B2',
-                                    borderWidth: 1,
-                                    paddingHorizontal: 8,
-                                    paddingVertical: 3,
-                                    borderRadius: 6,
-                                    gap: 4,
-                                  }}
-                                >
-                                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: availStock > 0 ? '#234E52' : '#9B2C2C' }}>
-                                    {availStock > 0
-                                      ? `📦 Available: ${availStock} Springs (${currentPly} Stock)`
-                                      : `⚠️ 0 Springs in ${currentPly} Stock (Out of Stock)`}
-                                  </Text>
-                                </View>
-                              </View>
-                            ) : null}
-                          </View>
-                        );
-                      })}
-
-                      {taskStatus !== 'completed' && (
-                        <TouchableOpacity
-                          onPress={() => addHeadItem(hIdx)}
-                          style={[
-                            styles.addHeadShadeBtn,
-                            {
-                              borderColor: colors.primary,
-                              backgroundColor: colors.card,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.addHeadShadeBtnText, { color: colors.primary }]}>
-                            + Add Shade in {head.head_number === 1 ? '1st' : head.head_number === 2 ? '2nd' : head.head_number === 3 ? '3rd' : '4th'} Head (और शेड जोड़ें)
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  );
-                })}
-
-                <View style={[styles.sectionSummary, { backgroundColor: colors.inputBackground, marginTop: 14 }]}>
-                  <Text style={[styles.summaryText, { color: colors.text }]}>
-                    Weight: <Text style={{ fontWeight: 'bold' }}>{m2TotalKg.toFixed(1)} KG</Text>
-                  </Text>
-                  <Text style={[styles.summaryText, { color: colors.primary }]}>
-                    Wages: <Text style={{ fontWeight: 'bold' }}>₹{m2TotalWages.toFixed(2)}</Text>
-                  </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               </View>
+
+              {m5ActiveQuality === 'crown300' &&
+                renderHeadsFormatCard(
+                  '⚡ M5 — Crown-300 (2-ply)',
+                  '6 Heads • Per head 4 springs (Total 24 springs) • 1.5 KG each = 36 KG • No wages (₹0.00)',
+                  4,
+                  24,
+                  m5CrownSprings,
+                  m5CrownKg,
+                  0.0,
+                  m5CrownHeads,
+                  setM5CrownHeads,
+                  'm5_crown',
+                  '2-ply'
+                )}
+
+              {m5ActiveQuality === 'dolly_gold' &&
+                renderHeadsFormatCard(
+                  '🧵 M5 — Dolly Gold (2-ply)',
+                  '18 Heads • Per head 2 springs (Total 36 springs) • 1.5 KG each = 54 KG • No wages (₹0.00)',
+                  2,
+                  36,
+                  m5DollySprings,
+                  m5DollyKg,
+                  0.0,
+                  m5DollyHeads,
+                  setM5DollyHeads,
+                  'm5_dolly',
+                  '2-ply'
+                )}
+
+              {m5ActiveQuality === 'k800' &&
+                renderHeadsFormatCard(
+                  '🧶 M5 — Kohinoor 800 mtr / K-800 (2-ply)',
+                  '10 Heads • Per head 4 springs (Total 40 springs) • 1.5 KG each = 60 KG • No wages (₹0.00)',
+                  4,
+                  40,
+                  m5K800Springs,
+                  m5K800Kg,
+                  0.0,
+                  m5K800Heads,
+                  setM5K800Heads,
+                  'm5_k800',
+                  '2-ply'
+                )}
             </View>
-          )}
+          ) : selectedMachine === 'M6' ? (
+            /* ============================================================== */
+            /* MACHINE M6 FORMAT: Zip 135, Crown-300, Dolly Gold, K-800        */
+            /* ============================================================== */
+            <View>
+              {/* Quality Switcher Tabs */}
+              <View style={{ marginBottom: 12 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+                  {[
+                    { key: 'zip135', label: '⚡ Zip 135 mtr', heads: '4 Heads', sp: '16 Sp (24 KG)', ply: '3-ply' },
+                    { key: 'crown300', label: '👑 Crown-300', heads: '6 Heads', sp: '24 Sp (36 KG)', ply: '2-ply' },
+                    { key: 'dolly_gold', label: '🧵 Dolly Gold', heads: '18 Heads', sp: '36 Sp (54 KG)', ply: '2-ply' },
+                    { key: 'k800', label: '🧶 K-800', heads: '10 Heads', sp: '40 Sp (60 KG)', ply: '2-ply' },
+                  ].map((q) => {
+                    const active = m6ActiveQuality === q.key;
+                    return (
+                      <TouchableOpacity
+                        key={q.key}
+                        onPress={() => setM6ActiveQuality(q.key as any)}
+                        style={[
+                          styles.modeTabBtn,
+                          { paddingVertical: 10, paddingHorizontal: 14, minWidth: 130 },
+                          active
+                            ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                            : { backgroundColor: colors.card, borderColor: colors.border },
+                        ]}
+                      >
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: active ? '#fff' : colors.text, textAlign: 'center' }}>
+                          {q.label}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: active ? '#E2E8F0' : colors.textSecondary, textAlign: 'center', marginTop: 2 }}>
+                          {q.heads} • {q.sp} • {q.ply}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {m6ActiveQuality === 'zip135' &&
+                renderHeadsFormatCard(
+                  '⚡ M6 — Zip 135 mtr (3-ply)',
+                  '4 Heads • Per head max 4 springs (Total 16 springs) • 1.5 KG each = 24 KG • No wages (₹0.00)',
+                  4,
+                  16,
+                  m6ZipSprings,
+                  m6ZipKg,
+                  0.0,
+                  m6ZipHeads,
+                  setM6ZipHeads,
+                  'm6_zip',
+                  '3-ply'
+                )}
+
+              {m6ActiveQuality === 'crown300' &&
+                renderHeadsFormatCard(
+                  '👑 M6 — Crown-300 (2-ply)',
+                  '6 Heads • Per head 4 springs (Total 24 springs) • 1.5 KG each = 36 KG • No wages (₹0.00)',
+                  4,
+                  24,
+                  m6CrownSprings,
+                  m6CrownKg,
+                  0.0,
+                  m6CrownHeads,
+                  setM6CrownHeads,
+                  'm6_crown',
+                  '2-ply'
+                )}
+
+              {m6ActiveQuality === 'dolly_gold' &&
+                renderHeadsFormatCard(
+                  '🧵 M6 — Dolly Gold (2-ply)',
+                  '18 Heads • Per head 2 springs (Total 36 springs) • 1.5 KG each = 54 KG • No wages (₹0.00)',
+                  2,
+                  36,
+                  m6DollySprings,
+                  m6DollyKg,
+                  0.0,
+                  m6DollyHeads,
+                  setM6DollyHeads,
+                  'm6_dolly',
+                  '2-ply'
+                )}
+
+              {m6ActiveQuality === 'k800' &&
+                renderHeadsFormatCard(
+                  '🧶 M6 — Kohinoor 800 mtr / K-800 (2-ply)',
+                  '10 Heads • Per head 4 springs (Total 40 springs) • 1.5 KG each = 60 KG • No wages (₹0.00)',
+                  4,
+                  40,
+                  m6K800Springs,
+                  m6K800Kg,
+                  0.0,
+                  m6K800Heads,
+                  setM6K800Heads,
+                  'm6_k800',
+                  '2-ply'
+                )}
+            </View>
+          ) : null}
 
           {/* ============================================================== */}
           {/* PARCHI PHOTO UPLOAD SECTION                                     */}
@@ -2597,13 +3138,13 @@ export default function WindingMaster() {
             <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 10 }]}>
               📊 Machine Breakdown ({taskDate})
             </Text>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {['M1', 'M2', 'M3', 'M4'].map((m) => {
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+              {['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8'].map((m) => {
                 const s = summaryData?.machine_summary?.[m] || { total_springs: 0, total_wages: 0 };
                 return (
                   <View
                     key={m}
-                    style={[styles.mBreakdownCard, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}
+                    style={[styles.mBreakdownCard, { backgroundColor: colors.inputBackground, borderColor: colors.border, minWidth: 78 }]}
                   >
                     <Text style={{ fontWeight: 'bold', color: colors.primary, fontSize: 15 }}>{m}</Text>
                     <Text style={{ fontSize: 13, color: colors.text, marginTop: 4, fontWeight: '600' }}>
@@ -2615,7 +3156,7 @@ export default function WindingMaster() {
                   </View>
                 );
               })}
-            </View>
+            </ScrollView>
           </View>
 
           {/* Tasks List */}

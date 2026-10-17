@@ -2520,6 +2520,132 @@ async def get_winding_machine_configs():
             "standard_kg": 24.0,
             "rate_per_kg": 40.0,
             "standard_wages": 960.0
+        },
+        "M5": {
+            "machine_id": "M5",
+            "name": "Machine 5 (M5)",
+            "default_operator": "Operator 5",
+            "sections": [
+                {
+                    "section_id": "crown300",
+                    "title": "Crown-300",
+                    "heads_count": 6,
+                    "springs_per_head": 4,
+                    "standard_springs": 24,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 36.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "2ply"
+                },
+                {
+                    "section_id": "dolly_gold",
+                    "title": "Dolly Gold",
+                    "heads_count": 18,
+                    "springs_per_head": 2,
+                    "standard_springs": 36,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 54.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "2ply"
+                },
+                {
+                    "section_id": "k800",
+                    "title": "Kohinoor 800 mtr (K800)",
+                    "heads_count": 10,
+                    "springs_per_head": 4,
+                    "standard_springs": 40,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 60.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "2ply"
+                }
+            ]
+        },
+        "M6": {
+            "machine_id": "M6",
+            "name": "Machine 6 (M6)",
+            "default_operator": "Operator 6",
+            "sections": [
+                {
+                    "section_id": "zip135",
+                    "title": "Zip 135 mtr",
+                    "heads_count": 4,
+                    "springs_per_head": 4,
+                    "standard_springs": 16,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 24.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "3ply"
+                },
+                {
+                    "section_id": "crown300",
+                    "title": "Crown-300",
+                    "heads_count": 6,
+                    "springs_per_head": 4,
+                    "standard_springs": 24,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 36.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "2ply"
+                },
+                {
+                    "section_id": "dolly_gold",
+                    "title": "Dolly Gold",
+                    "heads_count": 18,
+                    "springs_per_head": 2,
+                    "standard_springs": 36,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 54.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "2ply"
+                },
+                {
+                    "section_id": "k800",
+                    "title": "Kohinoor 800 mtr (K800)",
+                    "heads_count": 10,
+                    "springs_per_head": 4,
+                    "standard_springs": 40,
+                    "weight_per_spring": 1.5,
+                    "standard_kg": 60.0,
+                    "rate_per_kg": 0.0,
+                    "standard_wages": 0.0,
+                    "ply_type": "2ply"
+                }
+            ]
+        },
+        "M7": {
+            "machine_id": "M7",
+            "name": "Machine 7 (M7)",
+            "default_operator": "Operator 7",
+            "quality_name": "Zip 135 mtr",
+            "heads_count": 3,
+            "springs_per_head": 4,
+            "standard_springs": 12,
+            "weight_per_spring": 1.5,
+            "standard_kg": 18.0,
+            "rate_per_kg": 0.0,
+            "standard_wages": 0.0,
+            "ply_type": "3ply"
+        },
+        "M8": {
+            "machine_id": "M8",
+            "name": "Machine 8 (M8)",
+            "default_operator": "Operator 8",
+            "quality_name": "Zip 135 mtr",
+            "heads_count": 3,
+            "springs_per_head": 4,
+            "standard_springs": 12,
+            "weight_per_spring": 1.5,
+            "standard_kg": 18.0,
+            "rate_per_kg": 0.0,
+            "standard_wages": 0.0,
+            "ply_type": "3ply"
         }
     }
     return configs
@@ -2735,31 +2861,71 @@ async def adjust_shade_stock(shade_number: str, ply_type: str, delta: int) -> di
     )
     return {"shade_number": clean, "springs_2ply": new_2p, "springs_3ply": new_3p}
 
+def get_section_ply_type(section_id: str, machine_id: str) -> str:
+    """Determine whether a section uses 2-ply or 3-ply stock"""
+    sec = (section_id or "").lower()
+    m_id = (machine_id or "").upper()
+    if any(k in sec for k in ["k800", "dolly", "crown"]):
+        return "2ply"
+    if "zip" in sec:
+        return "3ply"
+    if m_id in ["M1", "M5"]:
+        return "2ply"
+    return "3ply"
+
+def extract_task_shades_by_ply(sections: List[dict], machine_id: str) -> Dict[str, Dict[str, int]]:
+    """Extract required springs grouped by ply_type: {"2ply": {shade: qty}, "3ply": {shade: qty}}"""
+    res = {"2ply": {}, "3ply": {}}
+    for sec in (sections or []):
+        sec_id = sec.get("section_id", "")
+        ply = get_section_ply_type(sec_id, machine_id)
+        # Check direct items
+        for it in (sec.get("items") or []):
+            sn = str(it.get("shade_number", "")).strip().replace("#", "")
+            sp = safe_int(it.get("springs", 0))
+            if sn and sp > 0:
+                res[ply][sn] = res[ply].get(sn, 0) + sp
+        # Check heads items
+        for h in (sec.get("heads") or []):
+            for it in (h.get("items") or []):
+                sn = str(it.get("shade_number", "")).strip().replace("#", "")
+                sp = safe_int(it.get("springs", 0))
+                if sn and sp > 0:
+                    res[ply][sn] = res[ply].get(sn, 0) + sp
+    return res
+
 @api_router.get("/winding/available-stock")
-async def get_winding_available_stock(machine_id: Optional[str] = "M1"):
+async def get_winding_available_stock(machine_id: Optional[str] = "M1", ply_type: Optional[str] = None):
     """
-    Get live available stock for all shades filtered for this machine's ply type:
-    - M1: 2-ply springs only
-    - M2, M3, M4: 3-ply springs only
+    Get live available stock for all shades:
+    Returns both 2-ply and 3-ply live stock counts, and sets 'available' based on current machine/ply.
     """
     try:
         m_id = (machine_id or "M1").upper()
-        ply_type = "2ply" if m_id == "M1" else "3ply"
+        if ply_type:
+            resolved_ply = "2ply" if "2" in ply_type else "3ply"
+        elif m_id in ["M1", "M5"]:
+            resolved_ply = "2ply"
+        else:
+            resolved_ply = "3ply"
+
         stock_map = await compute_shades_stock_map()
         
         res = {}
         for k, v in stock_map.items():
             sn = v["shade_number"]
-            avail = v["springs_2ply"] if ply_type == "2ply" else v["springs_3ply"]
+            avail = v["springs_2ply"] if resolved_ply == "2ply" else v["springs_3ply"]
             res[sn] = {
                 "shade_number": sn,
                 "springs_2ply": v["springs_2ply"],
                 "springs_3ply": v["springs_3ply"],
-                "available": avail
+                "available": avail,
+                "available_2ply": v["springs_2ply"],
+                "available_3ply": v["springs_3ply"]
             }
         return {
             "machine_id": m_id,
-            "ply_type": ply_type,
+            "ply_type": resolved_ply,
             "shades": res
         }
     except Exception as e:
@@ -2803,35 +2969,48 @@ async def start_winding_task(task: WindingTaskCreate):
                 detail="Task Parchi Photo is compulsory (पर्ची की फोटो अनिवार्य है)! Please upload parchi photo before starting task."
             )
 
-        # 2. Enforce max 4 springs per head for M2, M3, M4
-        if m_id in ["M2", "M3", "M4"]:
-            for sec in (task.sections or []):
-                for h in (sec.get("heads") or []):
-                    head_num = h.get("head_number", "?")
-                    h_sum = sum(safe_int(it.get("springs", 0)) for it in (h.get("items") or []))
-                    if h_sum > 4:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Per Head Limit Exceeded: Head {head_num} has {h_sum} springs. Maximum 4 springs are allowed per head on {m_id}!"
-                        )
+        # 2. Enforce head limits based on quality
+        for sec in (task.sections or []):
+            sec_id = (sec.get("section_id") or "").lower()
+            # Zip 135: max 4 springs per head
+            # Crown-300: max 4 springs per head
+            # Dolly Gold: max 2 springs per head
+            # K-800: max 4 springs per head
+            max_allowed = 2 if "dolly" in sec_id else 4
+            for h in (sec.get("heads") or []):
+                head_num = h.get("head_number", "?")
+                h_sum = sum(safe_int(it.get("springs", 0)) for it in (h.get("items") or []))
+                if h_sum > max_allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Per Head Limit Exceeded: Head {head_num} has {h_sum} springs. Maximum {max_allowed} springs allowed per head for {sec.get('title', sec_id)} on {m_id}!"
+                    )
 
-        needed_shades = extract_task_shades(task.sections)
-        if not needed_shades:
+        needed_by_ply = extract_task_shades_by_ply(task.sections, m_id)
+        total_items_count = sum(len(v) for v in needed_by_ply.values())
+        if total_items_count == 0:
             raise HTTPException(status_code=400, detail="Please select at least one shade with springs quantity before starting task!")
             
-        # Validate stock availability
-        for sn, qty in needed_shades.items():
-            stk = await get_shade_stock(sn)
-            avail = stk["springs_2ply"] if ply_type == "2ply" else stk["springs_3ply"]
-            if qty > avail:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Shade #{sn} has only {avail} springs available in stock ({ply_type}), but you entered {qty} springs!"
-                )
+        # Validate stock availability per ply type
+        for p_type, shades_map in needed_by_ply.items():
+            for sn, qty in shades_map.items():
+                stk = await get_shade_stock(sn)
+                avail = stk["springs_2ply"] if p_type == "2ply" else stk["springs_3ply"]
+                if qty > avail:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Shade #{sn} has only {avail} springs available in stock ({p_type}), but you entered {qty} springs!"
+                    )
                 
-        # Deduct stock
-        for sn, qty in needed_shades.items():
-            await adjust_shade_stock(sn, ply_type, -qty)
+        # Deduct stock per ply type
+        for p_type, shades_map in needed_by_ply.items():
+            for sn, qty in shades_map.items():
+                await adjust_shade_stock(sn, p_type, -qty)
+
+        all_needed_flat = {}
+        for sm in needed_by_ply.values():
+            for sn, qty in sm.items():
+                all_needed_flat[sn] = all_needed_flat.get(sn, 0) + qty
             
         now_iso = datetime.utcnow().isoformat()
         doc = {
@@ -3072,7 +3251,7 @@ async def get_winding_daily_summary(date: Optional[str] = None):
         completed_tasks = len([t for t in tasks if t.get("status") == "completed"])
         
         machine_summary = {}
-        for m in ["M1", "M2", "M3", "M4"]:
+        for m in ["M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8"]:
             m_tasks = [t for t in tasks if str(t.get("machine_id", "")).upper() == m]
             machine_summary[m] = {
                 "tasks_count": len(m_tasks),
