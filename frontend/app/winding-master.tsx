@@ -214,6 +214,40 @@ export default function WindingMaster() {
   const [taskDate, setTaskDate] = useState<string>(getTodayDateString);
   const [operatorName, setOperatorName] = useState<string>('Phool');
 
+  // Phool worker can work on both Machine M1 & M2
+  const isPhoolUser = Boolean(
+    (loggedInUser && loggedInUser.toLowerCase().includes('phool')) ||
+    (operatorName && operatorName.toLowerCase().includes('phool'))
+  );
+
+  const handlePhoolMachineChange = async (newMach: 'M1' | 'M2') => {
+    if (selectedMachine === newMach) return;
+    if (taskStatus === 'in_progress') {
+      const msg = `${selectedMachine} पर एक टास्क चालू है। क्या आप ${newMach} पर स्विच करना चाहते हैं? आपका ${selectedMachine} का चालू टास्क सुरक्षित रहेगा।`;
+      if (Platform.OS === 'web') {
+        if (!window.confirm(msg)) return;
+      } else {
+        Alert.alert(
+          'टास्क चालू है (Task In Progress)',
+          msg,
+          [
+            { text: 'रद्द करें (Cancel)', style: 'cancel' },
+            {
+              text: 'स्विच करें (Switch)',
+              onPress: async () => {
+                await AsyncStorage.setItem('phool_active_machine', newMach);
+                setSelectedMachine(newMach);
+              },
+            },
+          ]
+        );
+        return;
+      }
+    }
+    await AsyncStorage.setItem('phool_active_machine', newMach);
+    setSelectedMachine(newMach);
+  };
+
   const changeDateByDays = (days: number) => {
     const parts = (taskDate || getTodayDateString()).split('-');
     const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
@@ -298,13 +332,14 @@ export default function WindingMaster() {
         if (name) setLoggedInUser(name);
         if (role === 'winding_operator') {
           setActiveTab('worker');
-          // Strict 1-worker to 1-machine lock
-          // phool -> M1, rajeev -> M2, operator3 -> M3, operator4 -> M4
+          // Strict 1-worker to 1-machine lock (Except Phool who has dual access to M1 & M2)
           let lockedMachine: 'M1' | 'M2' | 'M3' | 'M4' = 'M1';
           let lockedName = name || 'Phool';
           const lowerName = (name || '').toLowerCase();
+          const savedPhoolMach = await AsyncStorage.getItem('phool_active_machine');
+
           if (lowerName.includes('phool')) {
-            lockedMachine = 'M1';
+            lockedMachine = savedPhoolMach === 'M2' ? 'M2' : 'M1';
             lockedName = 'Phool';
           } else if (lowerName.includes('rajeev')) {
             lockedMachine = 'M2';
@@ -443,6 +478,19 @@ export default function WindingMaster() {
           setTaskStatus('pending');
           setStartTime(null);
           setEndTime(null);
+          setParchiImageUrl('');
+          setParchiBase64(null);
+          if (selectedMachine === 'M1') {
+            setM1K800Items([{ id: '1', shade_number: '', springs: 0 }]);
+            setM1DollyItems([{ id: '1', shade_number: '', springs: 0 }]);
+          } else {
+            setM2Heads([
+              { head_number: 1, items: [{ id: '1-1', shade_number: '', springs: 0 }] },
+              { head_number: 2, items: [{ id: '2-1', shade_number: '', springs: 0 }] },
+              { head_number: 3, items: [{ id: '3-1', shade_number: '', springs: 0 }] },
+              { head_number: 4, items: [{ id: '4-1', shade_number: '', springs: 0 }] },
+            ]);
+          }
         }
       }
     } catch (e) {
@@ -710,14 +758,17 @@ export default function WindingMaster() {
     }
   };
 
-  // Filter individual operator tasks (strictly Phool sees Phool, Rajeev sees Rajeev, etc.)
+  // Filter individual operator tasks (strictly Phool sees Phool on M1/M2, Rajeev sees Rajeev, etc.)
   const operatorTasks = useMemo(() => {
+    const currOp = (operatorName || '').trim().toLowerCase();
+    const currMach = (selectedMachine || '').trim().toUpperCase();
     return tasksList.filter((t) => {
       const tOp = (t.operator_name || '').trim().toLowerCase();
-      const currOp = (operatorName || '').trim().toLowerCase();
       const tMach = (t.machine_id || '').trim().toUpperCase();
-      const currMach = (selectedMachine || '').trim().toUpperCase();
-      return tOp === currOp || tMach === currMach;
+      if (currOp) {
+        return tOp === currOp;
+      }
+      return tMach === currMach;
     });
   }, [tasksList, operatorName, selectedMachine]);
 
@@ -1021,7 +1072,7 @@ export default function WindingMaster() {
       total_kg: currentTotalKg,
       total_wages: currentTotalWages,
       parchi_image_url: parchiImageUrl,
-      is_extra_m2: isExtraM2,
+      is_extra_m2: isExtraM2 || (isPhoolUser && selectedMachine === 'M2'),
     };
 
     try {
@@ -1122,7 +1173,7 @@ export default function WindingMaster() {
             total_kg: currentTotalKg,
             total_wages: currentTotalWages,
             parchi_image_url: finalImageUrl,
-            is_extra_m2: isExtraM2,
+            is_extra_m2: isExtraM2 || (isPhoolUser && selectedMachine === 'M2'),
           };
 
       const res = await fetch(url, {
@@ -1275,7 +1326,7 @@ export default function WindingMaster() {
       {/* Operator sees task entry; Admin & Master see Master Daily Register */}
       {userRole === 'winding_operator' ? (
         <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 100 }}>
-          {/* Machine & Worker Card (1 Worker - 1 Machine Locked) */}
+          {/* Machine & Worker Card (Phool can switch M1 & M2) */}
           <View style={[styles.sectionCard, { borderColor: colors.border }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1284,19 +1335,92 @@ export default function WindingMaster() {
                 </View>
                 <View>
                   <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 2 }]}>
-                    🏭 Assigned Machine: {selectedMachine}
+                    🏭 Assigned Machine: {isPhoolUser ? 'M1 & M2 (Dual Access)' : selectedMachine}
                   </Text>
                   <Text style={{ fontSize: 12, color: colors.textSecondary }}>
                     {selectedMachine === 'M1'
-                      ? 'Kohinoor 800 mtr (K800) + Dolly Gold'
-                      : `${selectedMachine} - Zip 135 mtr (4 Heads)`}
+                      ? 'Kohinoor 800 mtr (K800) + Dolly Gold • 2-ply Springs'
+                      : `${selectedMachine} - Zip 135 mtr (4 Heads) • 3-ply Springs`}
                   </Text>
                 </View>
               </View>
-              <View style={{ backgroundColor: '#C6F6D5', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#9AE6B4' }}>
-                <Text style={{ color: '#22543D', fontSize: 11, fontWeight: 'bold' }}>🔒 Locked to Worker</Text>
+              <View style={{ backgroundColor: isPhoolUser ? '#EBF8FF' : '#C6F6D5', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: isPhoolUser ? '#90CDF4' : '#9AE6B4' }}>
+                <Text style={{ color: isPhoolUser ? '#2B6CB0' : '#22543D', fontSize: 11, fontWeight: 'bold' }}>
+                  {isPhoolUser ? '✨ M1 & M2 Enabled' : '🔒 Locked to Worker'}
+                </Text>
               </View>
             </View>
+
+            {/* Phool Multi-Machine Switcher (M1 & M2) */}
+            {isPhoolUser && (
+              <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.text }}>
+                    ⚙️ Active Machine (काम करने के लिए मशीन चुनें):
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.primary, fontWeight: '600' }}>
+                    Currently Selected: {selectedMachine}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => handlePhoolMachineChange('M1')}
+                    style={[
+                      {
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        paddingVertical: 12,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        borderWidth: 2,
+                        borderColor: selectedMachine === 'M1' ? colors.primary : colors.border,
+                        backgroundColor: selectedMachine === 'M1' ? colors.primary + '18' : colors.inputBackground,
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: selectedMachine === 'M1' ? colors.primary : colors.text }}>
+                      {selectedMachine === 'M1' ? '✓ ' : ''}🏭 Machine M1
+                    </Text>
+                    <View style={{ backgroundColor: selectedMachine === 'M1' ? colors.primary : colors.border, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ fontSize: 10, fontWeight: 'bold', color: selectedMachine === 'M1' ? '#fff' : colors.textSecondary }}>
+                        2-ply
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    onPress={() => handlePhoolMachineChange('M2')}
+                    style={[
+                      {
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        paddingVertical: 12,
+                        paddingHorizontal: 12,
+                        borderRadius: 10,
+                        borderWidth: 2,
+                        borderColor: selectedMachine === 'M2' ? colors.primary : colors.border,
+                        backgroundColor: selectedMachine === 'M2' ? colors.primary + '18' : colors.inputBackground,
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: selectedMachine === 'M2' ? colors.primary : colors.text }}>
+                      {selectedMachine === 'M2' ? '✓ ' : ''}🏭 Machine M2
+                    </Text>
+                    <View style={{ backgroundColor: selectedMachine === 'M2' ? colors.primary : colors.border, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                      <Text style={{ fontSize: 10, fontWeight: 'bold', color: selectedMachine === 'M2' ? '#fff' : colors.textSecondary }}>
+                        3-ply
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
 
             {/* Worker & Date Row */}
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 14 }}>
@@ -1313,7 +1437,7 @@ export default function WindingMaster() {
                   ]}
                 >
                   <Text style={{ color: colors.text, fontWeight: 'bold', fontSize: 14 }}>
-                    👤 {operatorName} <Text style={{ fontSize: 11, color: colors.textSecondary, fontWeight: 'normal' }}>🔒 (Locked)</Text>
+                    👤 {operatorName} <Text style={{ fontSize: 11, color: isPhoolUser ? colors.primary : colors.textSecondary, fontWeight: 'normal' }}>{isPhoolUser ? '✨ (M1 & M2 Dual)' : '🔒 (Locked)'}</Text>
                   </Text>
                 </View>
               </View>
@@ -2094,7 +2218,7 @@ export default function WindingMaster() {
                   📝 My Recorded Tasks ({operatorTasks.length})
                 </Text>
                 <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                  👤 {operatorName} ({selectedMachine}) • {taskDate} के रिकॉर्ड किए गए टास्क
+                  👤 {operatorName} ({isPhoolUser ? 'M1 / M2' : selectedMachine}) • {taskDate} के रिकॉर्ड किए गए टास्क
                 </Text>
               </View>
               <View style={[styles.badge, { backgroundColor: colors.primary }]}>
