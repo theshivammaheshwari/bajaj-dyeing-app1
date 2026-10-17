@@ -2812,6 +2812,15 @@ async def compute_shades_stock_map() -> dict:
                         shades_stock[k]["springs_2ply"] += safe_int(t.get("springs_2ply", 0))
                         shades_stock[k]["springs_3ply"] += safe_int(t.get("springs_3ply", 0))
 
+    stock_entries = await db.stock_entries.find({}).to_list(10000)
+    for entry in stock_entries:
+        if isinstance(entry, dict):
+            sn = str(entry.get("shade_number", "") or "").strip().lstrip("#")
+            if sn:
+                k = sn.lower()
+                if k not in shades_stock:
+                    shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+
     overrides = await db.shade_spring_stocks.find({}).to_list(10000)
     for o in overrides:
         sn = str(o.get("shade_number", "") or "").strip().lstrip("#")
@@ -2915,7 +2924,7 @@ async def get_winding_available_stock(machine_id: Optional[str] = "M1", ply_type
         for k, v in stock_map.items():
             sn = v["shade_number"]
             avail = v["springs_2ply"] if resolved_ply == "2ply" else v["springs_3ply"]
-            res[sn] = {
+            entry = {
                 "shade_number": sn,
                 "springs_2ply": v["springs_2ply"],
                 "springs_3ply": v["springs_3ply"],
@@ -2923,6 +2932,9 @@ async def get_winding_available_stock(machine_id: Optional[str] = "M1", ply_type
                 "available_2ply": v["springs_2ply"],
                 "available_3ply": v["springs_3ply"]
             }
+            res[sn] = entry
+            if sn.lower() != sn:
+                res[sn.lower()] = entry
         return {
             "machine_id": m_id,
             "ply_type": resolved_ply,

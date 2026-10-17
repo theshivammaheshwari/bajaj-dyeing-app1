@@ -51,7 +51,7 @@ interface WindingTask {
   created_at?: string;
 }
 
-const ALL_SHADES_LIST = Array.from({ length: 460 }, (_, i) => String(i + 1));
+const BASE_SHADES_1_TO_460 = Array.from({ length: 460 }, (_, i) => String(i + 1));
 
 const getTodayDateString = () => {
   const d = new Date();
@@ -267,7 +267,7 @@ export default function WindingMaster() {
     targetPly?: '2-ply' | '3-ply';
   } | null>(null);
   const [shadeSearch, setShadeSearch] = useState<string>('');
-  const [rangeTab, setRangeTab] = useState<'all' | '1-100' | '101-200' | '201-300' | '301-400' | '401-460'>('all');
+  const [rangeTab, setRangeTab] = useState<'all' | '1-100' | '101-200' | '201-300' | '301-400' | '401-500' | '500+' | 'special'>('all');
   const [multiSelectMode, setMultiSelectMode] = useState<boolean>(false);
   const [selectedShadesList, setSelectedShadesList] = useState<string[]>([]);
 
@@ -841,14 +841,14 @@ export default function WindingMaster() {
 
   // Live stock availability helper based on target ply (2-ply or 3-ply)
   const getShadeAvailable = (shadeNum: string, targetPly?: '2-ply' | '3-ply') => {
-    const cleanSn = shadeNum.replace(/^#/, '');
-    const data = stockMap[cleanSn];
+    const cleanSn = String(shadeNum || '').trim().replace(/^#/, '');
+    const data = stockMap[cleanSn] || stockMap[cleanSn.toLowerCase()] || stockMap[cleanSn.toUpperCase()];
     if (!data) return 0;
     const ply = targetPly || shadeTarget?.targetPly || currentPly;
     if (ply === '2-ply') {
-      return data.springs_2ply !== undefined ? data.springs_2ply : (data.available ?? 0);
+      return data.springs_2ply !== undefined ? data.springs_2ply : (data.available_2ply ?? data.available ?? 0);
     }
-    return data.springs_3ply !== undefined ? data.springs_3ply : (data.available ?? 0);
+    return data.springs_3ply !== undefined ? data.springs_3ply : (data.available_3ply ?? data.available ?? 0);
   };
 
   // Open shade picker modal
@@ -877,15 +877,17 @@ export default function WindingMaster() {
 
   // Toggle multi-select shade
   const toggleMultiShade = (shadeNum: string) => {
-    const cleanSn = shadeNum.replace(/^#/, '');
+    const cleanSn = String(shadeNum || '').trim().replace(/^#/, '');
     if (selectedShadesList.includes(cleanSn)) {
       setSelectedShadesList(selectedShadesList.filter((s) => s !== cleanSn));
     } else {
       const avail = getShadeAvailable(cleanSn, shadeTarget?.targetPly);
       if (avail <= 0) {
+        const isNum = /^\d+$/.test(cleanSn);
+        const disp = isNum ? `#${cleanSn}` : cleanSn;
         Alert.alert(
           'Out of Stock (स्टॉक नहीं है)',
-          `Shade #${cleanSn} has 0 springs available in ${shadeTarget?.targetPly || currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
+          `Shade ${disp} has 0 springs available in ${shadeTarget?.targetPly || currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
         );
         return;
       }
@@ -970,12 +972,14 @@ export default function WindingMaster() {
   // Handle selecting a single shade from dropdown modal
   const handleSelectShade = (shadeNum: string) => {
     if (!shadeTarget) return;
-    const cleanSn = shadeNum.replace(/^#/, '');
+    const cleanSn = String(shadeNum || '').trim().replace(/^#/, '');
     const avail = getShadeAvailable(cleanSn, shadeTarget.targetPly);
     if (avail <= 0) {
+      const isNum = /^\d+$/.test(cleanSn);
+      const disp = isNum ? `#${cleanSn}` : cleanSn;
       Alert.alert(
         'Out of Stock (स्टॉक नहीं है)',
-        `Shade #${cleanSn} does not have any springs available in ${shadeTarget.targetPly || currentPly} stock! (स्टॉक में 0 स्प्रिंग्स हैं)`
+        `Shade ${disp} does not have any springs available in ${shadeTarget.targetPly || currentPly} stock! (स्टॉक में 0 स्प्रिंग्स हैं)`
       );
       return;
     }
@@ -1013,34 +1017,68 @@ export default function WindingMaster() {
     setShadeTarget(null);
   };
 
-  // Filter shades #1 to #460 based on search query, range tab, and in-stock toggle
+  // Dynamically include base 1-460 AND all shades appearing in Stock In Hand (e.g. 1001, 1310, "black return", "COLOURTEX 5 (02)", "WHITE 3 PLY")
+  const allAvailableShades = useMemo(() => {
+    const set = new Set<string>();
+    BASE_SHADES_1_TO_460.forEach((s) => set.add(s));
+    Object.values(stockMap).forEach((item) => {
+      if (item && item.shade_number) {
+        set.add(String(item.shade_number).trim());
+      }
+    });
+    Object.keys(stockMap).forEach((k) => {
+      if (k && stockMap[k]?.shade_number) {
+        set.add(String(stockMap[k].shade_number).trim());
+      }
+    });
+
+    // Sort: numeric ascending (1..460, 1001, 1030, 1310...), then special named shades alphabetically at the end
+    return Array.from(set).sort((a, b) => {
+      const isNumA = /^\d+$/.test(a);
+      const isNumB = /^\d+$/.test(b);
+      if (isNumA && isNumB) {
+        return parseInt(a, 10) - parseInt(b, 10);
+      }
+      if (isNumA && !isNumB) return -1;
+      if (!isNumA && isNumB) return 1;
+      return a.localeCompare(b, undefined, { sensitivity: 'base' });
+    });
+  }, [stockMap]);
+
+  // Filter shades based on search query, range tab, and in-stock toggle
   const filteredShades = useMemo(() => {
-    return ALL_SHADES_LIST.filter((sn) => {
+    return allAvailableShades.filter((sn) => {
       const avail = getShadeAvailable(sn, shadeTarget?.targetPly);
       if (inStockOnlyFilter && avail <= 0) return false;
 
-      const num = parseInt(sn, 10);
-      if (rangeTab === '1-100' && (num < 1 || num > 100)) return false;
-      if (rangeTab === '101-200' && (num < 101 || num > 200)) return false;
-      if (rangeTab === '201-300' && (num < 201 || num > 300)) return false;
-      if (rangeTab === '301-400' && (num < 301 || num > 400)) return false;
-      if (rangeTab === '401-460' && (num < 401 || num > 460)) return false;
-
+      // If user typed search, prioritize matching query across all shades
       if (shadeSearch.trim()) {
         const q = shadeSearch.trim().toLowerCase().replace(/^#/, '');
         return sn.toLowerCase().includes(q);
       }
+
+      const isNum = /^\d+$/.test(sn);
+      const num = isNum ? parseInt(sn, 10) : NaN;
+
+      if (rangeTab === '1-100' && (!isNum || num < 1 || num > 100)) return false;
+      if (rangeTab === '101-200' && (!isNum || num < 101 || num > 200)) return false;
+      if (rangeTab === '201-300' && (!isNum || num < 201 || num > 300)) return false;
+      if (rangeTab === '301-400' && (!isNum || num < 301 || num > 400)) return false;
+      if (rangeTab === '401-500' && (!isNum || num < 401 || num > 500)) return false;
+      if (rangeTab === '500+' && (!isNum || num <= 500)) return false;
+      if (rangeTab === 'special' && isNum) return false;
+
       return true;
     });
-  }, [stockMap, inStockOnlyFilter, rangeTab, shadeSearch, shadeTarget]);
+  }, [allAvailableShades, stockMap, inStockOnlyFilter, rangeTab, shadeSearch, shadeTarget]);
 
   const inStockCount = useMemo(() => {
     let count = 0;
-    for (const sn of ALL_SHADES_LIST) {
+    for (const sn of allAvailableShades) {
       if (getShadeAvailable(sn, shadeTarget?.targetPly) > 0) count++;
     }
     return count;
-  }, [stockMap, shadeTarget]);
+  }, [allAvailableShades, stockMap, shadeTarget]);
 
   // Load existing tasks on mount or date change
   useEffect(() => {
@@ -1619,7 +1657,7 @@ export default function WindingMaster() {
               {/* Head Columns Header */}
               <View style={[styles.headRowHeader, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.headRowHeaderCol, { flex: 1, color: colors.textSecondary }]}>
-                  Shade No. (#1–460)
+                  Shade No.
                 </Text>
                 <Text
                   style={[
@@ -1649,10 +1687,10 @@ export default function WindingMaster() {
                       >
                         <TextInput
                           style={[styles.shadeCompoundInput, { color: colors.text }]}
-                          placeholder="Shade #1–#460"
+                          placeholder="Select Shade"
                           placeholderTextColor={colors.textSecondary}
                           value={it.shade_number}
-                          keyboardType="numeric"
+                          keyboardType="default"
                           editable={taskStatus !== 'completed'}
                           onChangeText={(val) => {
                             const updated = [...heads];
@@ -2138,7 +2176,7 @@ export default function WindingMaster() {
 
                 {/* Rows Header */}
                 <View style={[styles.rowHeader, { backgroundColor: colors.inputBackground }]}>
-                  <Text style={[styles.rowHeaderCol, { flex: 1, color: colors.text }]}>Shade No. (#1–460)</Text>
+                  <Text style={[styles.rowHeaderCol, { flex: 1, color: colors.text }]}>Shade No.</Text>
                   <Text style={[styles.rowHeaderCol, { width: 72, textAlign: 'center', color: colors.text }]}>
                     Springs
                   </Text>
@@ -2148,7 +2186,7 @@ export default function WindingMaster() {
                 {/* Items List */}
                 {m1K800Items.map((item, idx) => {
                   const cleanSn = item.shade_number ? item.shade_number.replace(/^#/, '') : '';
-                  const availStock = stockMap[cleanSn]?.available ?? 0;
+                  const availStock = getShadeAvailable(cleanSn, '2-ply');
                   const prevQty = Number(item.springs) || 0;
                   const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
 
@@ -2163,10 +2201,10 @@ export default function WindingMaster() {
                         >
                           <TextInput
                             style={[styles.shadeCompoundInput, { color: colors.text }]}
-                            placeholder="Shade #1–#460"
+                            placeholder="Select Shade"
                             placeholderTextColor={colors.textSecondary}
                             value={item.shade_number}
-                            keyboardType="numeric"
+                            keyboardType="default"
                             editable={taskStatus !== 'completed'}
                             onChangeText={(val) => {
                               const updated = [...m1K800Items];
@@ -2307,7 +2345,7 @@ export default function WindingMaster() {
 
                 {/* Rows Header */}
                 <View style={[styles.rowHeader, { backgroundColor: colors.inputBackground }]}>
-                  <Text style={[styles.rowHeaderCol, { flex: 1, color: colors.text }]}>Shade No. (#1–460)</Text>
+                  <Text style={[styles.rowHeaderCol, { flex: 1, color: colors.text }]}>Shade No.</Text>
                   <Text style={[styles.rowHeaderCol, { width: 72, textAlign: 'center', color: colors.text }]}>
                     Springs
                   </Text>
@@ -2317,7 +2355,7 @@ export default function WindingMaster() {
                 {/* Items List */}
                 {m1DollyItems.map((item, idx) => {
                   const cleanSn = item.shade_number ? item.shade_number.replace(/^#/, '') : '';
-                  const availStock = stockMap[cleanSn]?.available ?? 0;
+                  const availStock = getShadeAvailable(cleanSn, '2-ply');
                   const prevQty = Number(item.springs) || 0;
                   const maxAllowed = taskStatus === 'in_progress' ? availStock + prevQty : availStock;
 
@@ -2332,10 +2370,10 @@ export default function WindingMaster() {
                         >
                           <TextInput
                             style={[styles.shadeCompoundInput, { color: colors.text }]}
-                            placeholder="Shade #1–#460"
+                            placeholder="Select Shade"
                             placeholderTextColor={colors.textSecondary}
                             value={item.shade_number}
-                            keyboardType="numeric"
+                            keyboardType="default"
                             editable={taskStatus !== 'completed'}
                             onChangeText={(val) => {
                               const updated = [...m1DollyItems];
@@ -3393,7 +3431,7 @@ export default function WindingMaster() {
                     : ''}
                 </Text>
                 <Text style={{ fontSize: 12, color: colors.textSecondary }}>
-                  Range #1 to #460 (लिखें या सीधे टैप करें)
+                  Stock in Hand All Shades (लिखें या सीधे टैप करें)
                 </Text>
               </View>
               <TouchableOpacity
@@ -3468,11 +3506,11 @@ export default function WindingMaster() {
                   styles.shadeSearchInput,
                   { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.primary },
                 ]}
-                placeholder="🔍 Type shade number (e.g. 15, 136, 460)..."
+                placeholder="🔍 Type shade number or name (e.g. 15, 1001, black)..."
                 placeholderTextColor={colors.textSecondary}
                 value={shadeSearch}
                 onChangeText={setShadeSearch}
-                keyboardType="numeric"
+                keyboardType="default"
                 autoFocus
                 onSubmitEditing={() => {
                   if (shadeSearch.trim()) {
@@ -3515,12 +3553,23 @@ export default function WindingMaster() {
 
             {/* Quick Range Filter Tabs */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10, maxHeight: 36 }}>
-              {(['all', '1-100', '101-200', '201-300', '301-400', '401-460'] as const).map((r) => {
-                const isSelected = rangeTab === r;
+              {(
+                [
+                  { key: 'all', label: `All (${allAvailableShades.length})` },
+                  { key: '1-100', label: '#1–100' },
+                  { key: '101-200', label: '#101–200' },
+                  { key: '201-300', label: '#201–300' },
+                  { key: '301-400', label: '#301–400' },
+                  { key: '401-500', label: '#401–500' },
+                  { key: '500+', label: '#500+' },
+                  { key: 'special', label: '⭐ Special/Named' },
+                ] as const
+              ).map((tab) => {
+                const isSelected = rangeTab === tab.key;
                 return (
                   <TouchableOpacity
-                    key={r}
-                    onPress={() => setRangeTab(r)}
+                    key={tab.key}
+                    onPress={() => setRangeTab(tab.key)}
                     style={[
                       styles.rangeTabBtn,
                       {
@@ -3530,19 +3579,21 @@ export default function WindingMaster() {
                     ]}
                   >
                     <Text style={{ color: isSelected ? '#fff' : colors.text, fontSize: 12, fontWeight: 'bold' }}>
-                      {r === 'all' ? 'All (1–460)' : `#${r}`}
+                      {tab.label}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
 
-            {/* Shades Grid (Range #1 to #460) */}
+            {/* Shades Grid (Dynamic Stock in Hand Shades) */}
             <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={styles.shadesGrid}>
               {filteredShades.map((sn) => {
                 const isSelected = selectedShadesList.includes(sn);
-                const avail = stockMap[sn]?.available ?? 0;
+                const avail = getShadeAvailable(sn, shadeTarget?.targetPly);
                 const hasStock = avail > 0;
+                const isNumeric = /^\d+$/.test(sn);
+                const displayName = isNumeric ? `#${sn}` : sn;
 
                 return (
                   <TouchableOpacity
@@ -3551,7 +3602,7 @@ export default function WindingMaster() {
                       if (!hasStock) {
                         Alert.alert(
                           'Out of Stock (स्टॉक नहीं है)',
-                          `Shade #${sn} has 0 springs available in ${currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
+                          `Shade ${displayName} has 0 springs available in ${shadeTarget?.targetPly || currentPly} stock! (स्टॉक में उपलब्ध नहीं है)`
                         );
                         return;
                       }
@@ -3582,8 +3633,9 @@ export default function WindingMaster() {
                         styles.shadeChipText,
                         { color: isSelected ? '#fff' : hasStock ? colors.text : colors.textSecondary },
                       ]}
+                      numberOfLines={1}
                     >
-                      {isSelected ? `✓ #${sn}` : `#${sn}`}
+                      {isSelected ? `✓ ${displayName}` : displayName}
                     </Text>
                     <Text
                       style={{
@@ -3615,7 +3667,9 @@ export default function WindingMaster() {
                       style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
                     >
                       <Text style={{ color: '#fff', fontWeight: 'bold' }}>
-                        {multiSelectMode ? `+ Add "#${shadeSearch.trim().replace(/^#/, '')}" to Selection` : `Use "#${shadeSearch.trim().replace(/^#/, '')}"`}
+                        {multiSelectMode
+                          ? `+ Add "${shadeSearch.trim()}" to Selection`
+                          : `Use "${shadeSearch.trim()}"`}
                       </Text>
                     </TouchableOpacity>
                   )}
