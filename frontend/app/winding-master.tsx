@@ -1155,13 +1155,22 @@ export default function WindingMaster() {
     const file = e.target?.files?.[0];
     if (!file) return;
 
+    setUploadingImage(true);
     const reader = new FileReader();
     reader.onload = async (event) => {
-      const rawB64 = event.target?.result as string;
-      const b64 = await compressImage(rawB64, 1200, 0.75);
-      setParchiBase64(b64);
-      // Auto-upload to backend / Cloudinary
-      await uploadParchiPhoto(b64);
+      try {
+        const rawB64 = event.target?.result as string;
+        const b64 = await compressImage(rawB64, 1200, 0.75);
+        setParchiBase64(b64);
+        // Auto-upload to backend / Cloudinary
+        await uploadParchiPhoto(b64);
+      } catch (err) {
+        console.error('Error processing photo:', err);
+        setUploadingImage(false);
+      }
+    };
+    reader.onerror = () => {
+      setUploadingImage(false);
     };
     reader.readAsDataURL(file);
   };
@@ -1439,6 +1448,11 @@ export default function WindingMaster() {
         '📷 Task Parchi Photo Compulsory (पर्ची की फोटो अनिवार्य है)',
         'टास्क पूरा करने से पहले पर्ची की फोटो खींचें या अपलोड करें! पर्ची की फोटो अनिवार्य (compulsory) है।'
       );
+      return;
+    }
+
+    if (uploadingImage) {
+      Alert.alert('Uploading Parchi...', 'पर्ची सर्वर पर अपलोड हो रही है, कृपया 2-3 सेकंड प्रतीक्षा करें...');
       return;
     }
 
@@ -2702,8 +2716,10 @@ export default function WindingMaster() {
               styles.photoCard,
               {
                 backgroundColor: colors.card,
-                borderColor: !parchiImageUrl && !parchiBase64 ? '#E53E3E' : colors.border,
-                borderWidth: !parchiImageUrl && !parchiBase64 ? 1.5 : 1,
+                borderColor: uploadingImage
+                  ? '#D69E2E'
+                  : (!parchiImageUrl && !parchiBase64 ? '#E53E3E' : '#38A169'),
+                borderWidth: (!parchiImageUrl && !parchiBase64 || uploadingImage) ? 1.5 : 1,
               },
             ]}
           >
@@ -2711,11 +2727,26 @@ export default function WindingMaster() {
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
                 📷 Task Parchi Photo (पर्ची की फोटो) *
               </Text>
-              <View style={{ backgroundColor: !parchiImageUrl && !parchiBase64 ? '#FED7D7' : '#C6F6D5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
-                <Text style={{ fontSize: 11, fontWeight: 'bold', color: !parchiImageUrl && !parchiBase64 ? '#C53030' : '#22543D' }}>
-                  {!parchiImageUrl && !parchiBase64 ? '⚠️ अनिवार्य (Compulsory)' : '✅ Uploaded'}
-                </Text>
-              </View>
+              {uploadingImage ? (
+                <View style={{ backgroundColor: '#FEFCBF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <ActivityIndicator size="small" color="#B7791F" />
+                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#B7791F' }}>
+                    ⏳ Uploading...
+                  </Text>
+                </View>
+              ) : (!parchiImageUrl && !parchiBase64) ? (
+                <View style={{ backgroundColor: '#FED7D7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#C53030' }}>
+                    ⚠️ अनिवार्य (Compulsory)
+                  </Text>
+                </View>
+              ) : (
+                <View style={{ backgroundColor: '#C6F6D5', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ fontSize: 11, fontWeight: 'bold', color: '#22543D' }}>
+                    ✅ Uploaded
+                  </Text>
+                </View>
+              )}
             </View>
             <Text style={[styles.formatSubtitle, { color: colors.textSecondary, marginBottom: 12 }]}>
               Worker slip / parchi ki photo camera se kheench kar upload karein (टास्क शुरू और पूरा करने के लिए अनिवार्य है)
@@ -2729,25 +2760,41 @@ export default function WindingMaster() {
                   resizeMode="cover"
                 />
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ color: '#38A169', fontWeight: 'bold', fontSize: 14 }}>
-                    ✅ Parchi Uploaded!
-                  </Text>
-                  <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                    {uploadingImage ? 'Uploading to server...' : 'Uploaded successfully.'}
-                  </Text>
-                  {taskStatus !== 'completed' && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        if (Platform.OS === 'web' && fileInputRef.current) {
-                          fileInputRef.current.click();
-                        }
-                      }}
-                      style={[styles.reuploadBtn, { borderColor: colors.primary }]}
-                    >
-                      <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
-                        🔄 Re-take Photo
+                  {uploadingImage ? (
+                    <View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <ActivityIndicator size="small" color="#D69E2E" />
+                        <Text style={{ color: '#D69E2E', fontWeight: 'bold', fontSize: 14 }}>
+                          ⏳ Uploading to Server...
+                        </Text>
+                      </View>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+                        पर्ची सर्वर पर अपलोड हो रही है, कृपया प्रतीक्षा करें...
                       </Text>
-                    </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View>
+                      <Text style={{ color: '#38A169', fontWeight: 'bold', fontSize: 14 }}>
+                        ✅ Parchi Uploaded!
+                      </Text>
+                      <Text style={{ color: '#22543D', fontSize: 12, marginTop: 4, fontWeight: '500' }}>
+                        Uploaded successfully (सर्वर पर अपलोड हो गई है).
+                      </Text>
+                      {taskStatus !== 'completed' && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (Platform.OS === 'web' && fileInputRef.current) {
+                              fileInputRef.current.click();
+                            }
+                          }}
+                          style={[styles.reuploadBtn, { borderColor: colors.primary }]}
+                        >
+                          <Text style={{ color: colors.primary, fontSize: 12, fontWeight: 'bold' }}>
+                            🔄 Re-take Photo
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   )}
                 </View>
               </View>
