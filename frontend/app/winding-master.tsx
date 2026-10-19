@@ -1269,23 +1269,23 @@ export default function WindingMaster() {
     let hasValidItems = false;
     if (selectedMachine === 'M1') {
       hasValidItems =
-        m1K800Items.some((i) => i.shade_number && i.springs > 0) ||
-        m1DollyItems.some((i) => i.shade_number && i.springs > 0);
+        m1K800Items.some((i) => i.shade_number && Number(i.springs) > 0) ||
+        m1DollyItems.some((i) => i.shade_number && Number(i.springs) > 0);
     } else if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
-      hasValidItems = m2Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+      hasValidItems = m2Heads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0));
     } else if (['M7', 'M8'].includes(selectedMachine)) {
-      hasValidItems = m7Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+      hasValidItems = m7Heads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0));
     } else if (selectedMachine === 'M5') {
       hasValidItems =
-        m5CrownHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
-        m5DollyHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
-        m5K800Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+        m5CrownHeads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0)) ||
+        m5DollyHeads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0)) ||
+        m5K800Heads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0));
     } else if (selectedMachine === 'M6') {
       hasValidItems =
-        m6ZipHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
-        m6CrownHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
-        m6DollyHeads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0)) ||
-        m6K800Heads.some((h) => h.items.some((i) => i.shade_number && i.springs > 0));
+        m6ZipHeads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0)) ||
+        m6CrownHeads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0)) ||
+        m6DollyHeads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0)) ||
+        m6K800Heads.some((h) => h.items.some((i) => i.shade_number && Number(i.springs) > 0));
     }
 
     if (!hasValidItems) {
@@ -1293,16 +1293,7 @@ export default function WindingMaster() {
       return;
     }
 
-    // 1. Validate Task Parchi Photo is compulsory
-    if (!parchiImageUrl && !parchiBase64) {
-      Alert.alert(
-        '📷 Task Parchi Photo Compulsory (पर्ची की फोटो अनिवार्य है)',
-        'टास्क शुरू करने से पहले पर्ची की फोटो खींचें या अपलोड करें! पर्ची की फोटो अनिवार्य (compulsory) है।'
-      );
-      return;
-    }
-
-    // 2. Validate Per Head Limit for assigned machine
+    // 1. Validate Per Head Limit for assigned machine
     const checkHeadLimits = (heads: HeadData[], maxSp: number, name: string) => {
       for (const h of heads) {
         const headSum = h.items.reduce((s, it) => s + (Number(it.springs) || 0), 0);
@@ -1332,36 +1323,41 @@ export default function WindingMaster() {
       if (!checkHeadLimits(m6K800Heads, 4, 'K-800')) return;
     }
 
+    // Ensure stockMap is refreshed before stock validation
+    if (Object.keys(stockMap).length === 0) {
+      await fetchAvailableStock();
+    }
+
     // Validate available stock for each shade & ply
     const itemsToCheck: { sn: string; springs: number; ply: '2-ply' | '3-ply' }[] = [];
     if (selectedMachine === 'M1') {
       m1K800Items.forEach((i) => {
-        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' });
+        if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' });
       });
       m1DollyItems.forEach((i) => {
-        if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' });
+        if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' });
       });
     } else if (['M2', 'M3', 'M4'].includes(selectedMachine)) {
       m2Heads.forEach((h) => {
         h.items.forEach((i) => {
-          if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' });
+          if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' });
         });
       });
     } else if (['M7', 'M8'].includes(selectedMachine)) {
       m7Heads.forEach((h) => {
         h.items.forEach((i) => {
-          if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' });
+          if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' });
         });
       });
     } else if (selectedMachine === 'M5') {
-      m5CrownHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
-      m5DollyHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
-      m5K800Heads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m5CrownHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m5DollyHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m5K800Heads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
     } else if (selectedMachine === 'M6') {
-      m6ZipHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' }); }));
-      m6CrownHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
-      m6DollyHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
-      m6K800Heads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && i.springs > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m6ZipHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '3-ply' }); }));
+      m6CrownHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m6DollyHeads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
+      m6K800Heads.forEach((h) => h.items.forEach((i) => { if (i.shade_number && Number(i.springs) > 0) itemsToCheck.push({ sn: i.shade_number.replace(/^#/, ''), springs: Number(i.springs), ply: '2-ply' }); }));
     }
 
     const sumMap: { [key: string]: { sn: string; springs: number; ply: '2-ply' | '3-ply' } } = {};
@@ -1387,6 +1383,7 @@ export default function WindingMaster() {
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     const sectionsPayload = getSectionsPayload();
+    const finalImageUrl = parchiImageUrl || parchiBase64 || '';
 
     const payload = {
       date: taskDate,
@@ -1398,7 +1395,7 @@ export default function WindingMaster() {
       total_springs: currentTotalSprings,
       total_kg: currentTotalKg,
       total_wages: currentTotalWages,
-      parchi_image_url: parchiImageUrl,
+      parchi_image_url: finalImageUrl,
       is_extra_m2: isExtraM2 || (isPhoolUser && selectedMachine === 'M2'),
     };
 

@@ -2974,14 +2974,7 @@ async def start_winding_task(task: WindingTaskCreate):
         m_id = task.machine_id.upper()
         ply_type = "2ply" if m_id == "M1" else "3ply"
         
-        # 1. Enforce compulsory parchi photo
-        if not task.parchi_image_url:
-            raise HTTPException(
-                status_code=400,
-                detail="Task Parchi Photo is compulsory (पर्ची की फोटो अनिवार्य है)! Please upload parchi photo before starting task."
-            )
-
-        # 2. Enforce head limits based on quality
+        # 1. Enforce head limits based on quality
         for sec in (task.sections or []):
             sec_id = (sec.get("section_id") or "").lower()
             # Zip 135: max 4 springs per head
@@ -3014,11 +3007,6 @@ async def start_winding_task(task: WindingTaskCreate):
                         detail=f"Shade #{sn} has only {avail} springs available in stock ({p_type}), but you entered {qty} springs!"
                     )
                 
-        # Deduct stock per ply type
-        for p_type, shades_map in needed_by_ply.items():
-            for sn, qty in shades_map.items():
-                await adjust_shade_stock(sn, p_type, -qty)
-
         all_needed_flat = {}
         for sm in needed_by_ply.values():
             for sn, qty in sm.items():
@@ -3034,17 +3022,23 @@ async def start_winding_task(task: WindingTaskCreate):
             "start_time": task.start_time or datetime.now().strftime("%H:%M:%S"),
             "end_time": None,
             "sections": task.sections or [],
-            "total_springs": task.total_springs or sum(needed_shades.values()),
+            "total_springs": task.total_springs or sum(all_needed_flat.values()),
             "total_kg": task.total_kg or 0.0,
             "total_wages": task.total_wages or 0.0,
             "parchi_image_url": task.parchi_image_url or "",
             "notes": task.notes or "",
             "is_extra_m2": task.is_extra_m2 or False,
-            "allocated_items": needed_shades,
+            "allocated_items": all_needed_flat,
             "created_at": now_iso,
             "updated_at": now_iso
         }
         res = await db.winding_tasks.insert_one(doc)
+
+        # Deduct stock per ply type only AFTER doc is successfully prepared & inserted
+        for p_type, shades_map in needed_by_ply.items():
+            for sn, qty in shades_map.items():
+                await adjust_shade_stock(sn, p_type, -qty)
+
         created = await db.winding_tasks.find_one({"_id": res.inserted_id})
         return winding_task_helper(created)
     except HTTPException:
