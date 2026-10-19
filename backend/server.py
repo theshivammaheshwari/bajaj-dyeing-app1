@@ -731,12 +731,8 @@ async def get_daily_tasks():
 
 
 @api_router.get("/daily-tasks/{date}")
-async def get_daily_task_by_date(date: str, response: Optional[Response] = None):
+async def get_daily_task_by_date(date: str):
     """Get daily task by date"""
-    if response:
-        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
     task = await db.daily_tasks.find_one({"date": date})
     if not task:
         return {"message": "No task found for this date"}
@@ -1211,13 +1207,9 @@ async def update_payment_rates(rates: PaymentRatesUpdate):
 
 
 @api_router.get("/daily-tasks/{task_id}/payment-calculation")
-async def calculate_payment(task_id: str, assigned_to: Optional[str] = None, response: Optional[Response] = None):
+async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
     """Calculate payment for completed tasks based on machine capacity & master-specific rates effective on the task date"""
     try:
-        if response:
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
 
         daily_task = None
         if ObjectId.is_valid(task_id):
