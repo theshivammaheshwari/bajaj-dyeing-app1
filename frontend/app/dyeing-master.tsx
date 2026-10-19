@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
   ScrollView, SafeAreaView, StatusBar, Alert, Platform, Image,
@@ -190,7 +190,12 @@ export default function DyeingMaster() {
   const fetchTodayTask = async (isInitialLoad = false) => {
     try {
       if (isInitialLoad) setLoading(true);
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${date}`);
+      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${date}?_t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        }
+      });
       const data = await response.json();
       if (data.id) {
         setDailyTask(data);
@@ -298,13 +303,118 @@ export default function DyeingMaster() {
   const fetchPayment = async (taskId: string) => {
     try {
       const master = getEffectiveMaster();
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}/payment-calculation?assigned_to=${master}`);
-      const data = await response.json();
-      setPayment(data);
+      const response = await fetch(
+        `${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${taskId}/payment-calculation?assigned_to=${master}&_t=${Date.now()}`,
+        {
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          }
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        if (data && typeof data === 'object' && !data.detail) {
+          setPayment(data);
+        }
+      }
     } catch (error) {
       console.error('Payment error:', error);
     }
   };
+
+  const MACHINE_CAP_MAP: { [key: string]: number } = {
+    m1: 10.5,
+    m2: 12,
+    m3: 12,
+    m4: 6,
+    m5: 24,
+    m6: 15,
+    m7: 15,
+    m8: 12,
+    m9: 12,
+    m10: 6,
+    m11: 6,
+  };
+
+  const clientPayment = useMemo(() => {
+    if (!dailyTask) return null;
+    const master = getEffectiveMaster();
+    let normalKg = 0;
+    let blackReturnKg = 0;
+    let rejectedKg = 0;
+    let normalTasks = 0;
+    let blackReturnTasks = 0;
+    let rejectedTasks = 0;
+
+    const normalRate = payment?.normal_rate ?? 8;
+    const blackRate = payment?.black_return_rate ?? 4;
+    const rejectedRate = payment?.rejected_rate ?? 8;
+
+    const machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11'];
+    const autoTasks = Array.isArray(dailyTask.automatic_tasks) ? dailyTask.automatic_tasks : [];
+
+    for (const mId of machines) {
+      const cap = MACHINE_CAP_MAP[mId] || 0;
+      const rawTasks = Array.isArray(dailyTask[mId]) ? dailyTask[mId] : [];
+      const autoForM = autoTasks.filter((t: any) => t && String(t.machine || '').toLowerCase() === mId);
+      const combined = [...rawTasks, ...autoForM];
+
+      const forMaster = combined.filter((t: any) => {
+        if (!t) return false;
+        const a = String(t.assigned_to || '').trim().toLowerCase();
+        if (master === 'user2') {
+          return a === 'user2' || a === 'dm2' || a === 'master2' || a === 'master 2';
+        }
+        return a === 'user1' || a === 'dm1' || a === 'master1' || a === 'master 1' || !t.assigned_to;
+      });
+
+      for (const t of forMaster) {
+        const status = String(t.status || '').trim().toLowerCase();
+        const shade = String(t.shade_number || '').toLowerCase();
+        const isBlackReturn = shade.includes('black return') || shade.includes('black_return') || shade.includes('blackreturn');
+
+        if (status === 'completed') {
+          if (isBlackReturn) {
+            blackReturnKg += cap;
+            blackReturnTasks++;
+          } else {
+            normalKg += cap;
+            normalTasks++;
+          }
+        } else if (status === 'rejected') {
+          rejectedKg += cap;
+          rejectedTasks++;
+        }
+      }
+    }
+
+    const normalPayment = normalKg * normalRate;
+    const blackPayment = blackReturnKg * blackRate;
+    const rejPayment = rejectedKg * rejectedRate;
+    const totalKg = normalKg + blackReturnKg + rejectedKg;
+    const totalPayment = normalPayment + blackPayment + rejPayment;
+
+    return {
+      master: master,
+      normal_completed_kg: Math.round(normalKg * 100) / 100,
+      normal_completed_payment: Math.round(normalPayment * 100) / 100,
+      black_return_kg: Math.round(blackReturnKg * 100) / 100,
+      black_return_payment: Math.round(blackPayment * 100) / 100,
+      rejected_kg: Math.round(rejectedKg * 100) / 100,
+      rejected_payment: Math.round(rejPayment * 100) / 100,
+      total_kg: Math.round(totalKg * 100) / 100,
+      total_payment: Math.round(totalPayment * 100) / 100,
+      normal_rate: normalRate,
+      black_return_rate: blackRate,
+      rejected_rate: rejectedRate,
+      normal_completed_tasks: normalTasks,
+      black_return_tasks: blackReturnTasks,
+      rejected_tasks: rejectedTasks,
+    };
+  }, [dailyTask, adminFilterMaster, userRole, payment]);
+
+  const effectivePayment = (payment && (payment.total_kg > 0 || !clientPayment?.total_kg)) ? payment : (clientPayment || payment);
 
   const updateLocalWeight = (machineId: string, taskId: string, field: 'ply2' | 'ply3', value: string) => {
     const key = `${machineId}-${taskId}`;
@@ -669,12 +779,12 @@ export default function DyeingMaster() {
                   </View>
                   {MACHINES.map(machine => {
                     const rawTasks = activeTab === 'manual'
-                      ? (dailyTask?.[machine.id] || [])
+                      ? (dailyTask?.[machine.id] || []).map((t: any, idx: number) => ({...t, originalIndex: idx}))
                       : (dailyTask?.automatic_tasks || []).map((t: any, idx: number) => ({...t, originalIndex: idx})).filter((t: any) => t.machine === machine.id);
                     const tasks = filterTasksForMaster(rawTasks);
                     const task = tasks[rowIndex];
                     const targetMachineForApi = activeTab === 'manual' ? machine.id : 'automatic_tasks';
-                    const targetIndexForApi = activeTab === 'manual' ? rowIndex : (task ? task.originalIndex : 0);
+                    const targetIndexForApi = task ? (task.originalIndex ?? rowIndex) : rowIndex;
                     const taskIdForApi = task ? (task.id || targetIndexForApi.toString()) : targetIndexForApi.toString();
                     const weightInputKey = `${targetMachineForApi}-${taskIdForApi}`;
                     const updating = isUpdating[taskIdForApi];
@@ -932,7 +1042,7 @@ export default function DyeingMaster() {
               ))
             )}
 
-            {payment && (
+            {effectivePayment && (
               <View style={[styles.paymentCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <Text style={[styles.paymentTitle, { color: colors.text, marginBottom: 0 }]}>💰 Payment Summary</Text>
@@ -948,32 +1058,32 @@ export default function DyeingMaster() {
                 <View style={styles.paymentFlex}>
                   <View style={[styles.paymentStat, { backgroundColor: '#F0FFF4', borderRadius: 12, padding: 10, flex: 1 }]}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Normal Done</Text>
-                    <Text style={[styles.statValue, { color: colors.success }]}>₹{payment.normal_completed_payment ?? payment.completed_payment ?? 0}</Text>
+                    <Text style={[styles.statValue, { color: colors.success }]}>₹{effectivePayment.normal_completed_payment ?? effectivePayment.completed_payment ?? 0}</Text>
                     <Text style={[styles.statSub, { color: colors.textSecondary }]}>
-                      {payment.normal_completed_kg ?? payment.completed_kg ?? 0} kg @ ₹{payment.normal_rate ?? 8}/kg
+                      {effectivePayment.normal_completed_kg ?? effectivePayment.completed_kg ?? 0} kg @ ₹{effectivePayment.normal_rate ?? 8}/kg
                     </Text>
                   </View>
 
                   <View style={[styles.paymentStat, { backgroundColor: '#EBF8FF', borderRadius: 12, padding: 10, flex: 1 }]}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Black Return</Text>
-                    <Text style={[styles.statValue, { color: colors.secondary }]}>₹{payment.black_return_payment ?? payment.rejected_payment ?? 0}</Text>
+                    <Text style={[styles.statValue, { color: colors.secondary }]}>₹{effectivePayment.black_return_payment ?? effectivePayment.rejected_payment ?? 0}</Text>
                     <Text style={[styles.statSub, { color: colors.textSecondary }]}>
-                      {payment.black_return_kg ?? 0} kg @ ₹{payment.black_return_rate ?? 4}/kg
+                      {effectivePayment.black_return_kg ?? 0} kg @ ₹{effectivePayment.black_return_rate ?? 4}/kg
                     </Text>
                   </View>
 
                   <View style={[styles.paymentStat, { backgroundColor: '#FFF5F5', borderRadius: 12, padding: 10, flex: 1 }]}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Rejected</Text>
-                    <Text style={[styles.statValue, { color: colors.danger }]}>₹{payment.rejected_payment ?? 0}</Text>
+                    <Text style={[styles.statValue, { color: colors.danger }]}>₹{effectivePayment.rejected_payment ?? 0}</Text>
                     <Text style={[styles.statSub, { color: colors.textSecondary }]}>
-                      {payment.rejected_kg ?? 0} kg @ ₹{payment.rejected_rate ?? 8}/kg
+                      {effectivePayment.rejected_kg ?? 0} kg @ ₹{effectivePayment.rejected_rate ?? 8}/kg
                     </Text>
                   </View>
 
                   <View style={[styles.paymentStat, { backgroundColor: colors.primaryLight, borderRadius: 12, padding: 10, flex: 1 }]}>
                     <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Salary</Text>
-                    <Text style={[styles.statValueTotal, { color: colors.primary }]}>₹{payment.total_payment ?? 0}</Text>
-                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>{payment.total_kg ?? 0} kg</Text>
+                    <Text style={[styles.statValueTotal, { color: colors.primary }]}>₹{effectivePayment.total_payment ?? 0}</Text>
+                    <Text style={[styles.statSub, { color: colors.textSecondary }]}>{effectivePayment.total_kg ?? 0} kg</Text>
                   </View>
                 </View>
               </View>

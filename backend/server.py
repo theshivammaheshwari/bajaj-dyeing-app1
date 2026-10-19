@@ -731,8 +731,12 @@ async def get_daily_tasks():
 
 
 @api_router.get("/daily-tasks/{date}")
-async def get_daily_task_by_date(date: str):
+async def get_daily_task_by_date(date: str, response: Optional[Response] = None):
     """Get daily task by date"""
+    if response:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     task = await db.daily_tasks.find_one({"date": date})
     if not task:
         return {"message": "No task found for this date"}
@@ -1207,10 +1211,19 @@ async def update_payment_rates(rates: PaymentRatesUpdate):
 
 
 @api_router.get("/daily-tasks/{task_id}/payment-calculation")
-async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
+async def calculate_payment(task_id: str, assigned_to: Optional[str] = None, response: Optional[Response] = None):
     """Calculate payment for completed tasks based on machine capacity & master-specific rates effective on the task date"""
     try:
-        daily_task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
+        if response:
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+
+        daily_task = None
+        if ObjectId.is_valid(task_id):
+            daily_task = await db.daily_tasks.find_one({"_id": ObjectId(task_id)})
+        if not daily_task:
+            daily_task = await db.daily_tasks.find_one({"date": task_id})
         if not daily_task:
             raise HTTPException(status_code=404, detail="Daily task not found")
         
@@ -1232,40 +1245,56 @@ async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
         }
         
         if assigned_to:
-            target_master = 'user2' if assigned_to == 'user2' else 'user1'
+            target_master = 'user2' if str(assigned_to).strip().lower() in ['user2', 'dm2', 'master2', 'master 2', 'user 2'] else 'user1'
             active_rates = await get_rates_for_date(task_date, master=target_master)
             normal_rate = active_rates["normal_rate"]
             rejected_rate = active_rates["rejected_rate"]
             black_return_rate = active_rates["black_return_rate"]
             
-            normal_completed_kg = 0
-            black_return_kg = 0
-            rejected_kg = 0
+            normal_completed_kg = 0.0
+            black_return_kg = 0.0
+            rejected_kg = 0.0
             normal_completed_tasks = 0
             black_return_tasks = 0
             rejected_tasks = 0
             
-            automatic_tasks = daily_task.get("automatic_tasks", [])
+            automatic_tasks = daily_task.get("automatic_tasks") or []
+            if not isinstance(automatic_tasks, list):
+                automatic_tasks = []
+
             for machine_id, capacity in machine_capacities.items():
-                tasks = daily_task.get(machine_id, [])
-                auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_id]
+                tasks = daily_task.get(machine_id) or []
+                if not isinstance(tasks, list):
+                    tasks = []
+                auto_for_machine = [t for t in automatic_tasks if isinstance(t, dict) and str(t.get("machine", "")).strip().lower() == machine_id.lower()]
                 combined_tasks = tasks + auto_for_machine
                 
                 # Filter for this master
-                combined_tasks = [t for t in combined_tasks if t.get('assigned_to') == target_master or (target_master == 'user1' and not t.get('assigned_to'))]
+                def matches_master(t):
+                    if not isinstance(t, dict):
+                        return False
+                    raw_a = str(t.get('assigned_to', '')).strip().lower()
+                    if target_master == 'user2':
+                        return raw_a in ['user2', 'dm2', 'master2', 'master 2', 'user 2']
+                    return raw_a in ['user1', 'dm1', 'master1', 'master 1', 'user 1'] or not t.get('assigned_to')
+
+                combined_tasks = [t for t in combined_tasks if matches_master(t)]
                 
                 for task in combined_tasks:
+                    if not isinstance(task, dict):
+                        continue
                     shade_num = str(task.get('shade_number', '')).lower()
-                    is_black_return = 'black return' in shade_num
+                    is_black_return = 'black return' in shade_num or 'black_return' in shade_num or 'blackreturn' in shade_num
                     
-                    if task.get('status') == 'completed':
+                    status = str(task.get('status', '')).strip().lower()
+                    if status == 'completed':
                         if is_black_return:
                             black_return_kg += capacity
                             black_return_tasks += 1
                         else:
                             normal_completed_kg += capacity
                             normal_completed_tasks += 1
-                    elif task.get('status') == 'rejected':
+                    elif status == 'rejected':
                         rejected_kg += capacity
                         rejected_tasks += 1
             
@@ -1316,20 +1345,29 @@ async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
             black_return_payment = 0.0
             rejected_payment = 0.0
             
-            automatic_tasks = daily_task.get("automatic_tasks", [])
+            automatic_tasks = daily_task.get("automatic_tasks") or []
+            if not isinstance(automatic_tasks, list):
+                automatic_tasks = []
+
             for machine_id, capacity in machine_capacities.items():
-                tasks = daily_task.get(machine_id, [])
-                auto_for_machine = [t for t in automatic_tasks if t.get("machine") == machine_id]
+                tasks = daily_task.get(machine_id) or []
+                if not isinstance(tasks, list):
+                    tasks = []
+                auto_for_machine = [t for t in automatic_tasks if isinstance(t, dict) and str(t.get("machine", "")).strip().lower() == machine_id.lower()]
                 combined_tasks = tasks + auto_for_machine
                 
                 for task in combined_tasks:
-                    task_master = task.get('assigned_to') if task.get('assigned_to') == 'user2' else 'user1'
+                    if not isinstance(task, dict):
+                        continue
+                    raw_a = str(task.get('assigned_to', '')).strip().lower()
+                    task_master = 'user2' if raw_a in ['user2', 'dm2', 'master2', 'master 2', 'user 2'] else 'user1'
                     m_rates = rates_u2 if task_master == 'user2' else rates_u1
                     
                     shade_num = str(task.get('shade_number', '')).lower()
-                    is_black_return = 'black return' in shade_num
+                    is_black_return = 'black return' in shade_num or 'black_return' in shade_num or 'blackreturn' in shade_num
                     
-                    if task.get('status') == 'completed':
+                    status = str(task.get('status', '')).strip().lower()
+                    if status == 'completed':
                         if is_black_return:
                             black_return_kg += capacity
                             black_return_tasks += 1
@@ -1338,7 +1376,7 @@ async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
                             normal_completed_kg += capacity
                             normal_completed_tasks += 1
                             normal_completed_payment += capacity * m_rates["normal_rate"]
-                    elif task.get('status') == 'rejected':
+                    elif status == 'rejected':
                         rejected_kg += capacity
                         rejected_tasks += 1
                         rejected_payment += capacity * m_rates["rejected_rate"]
