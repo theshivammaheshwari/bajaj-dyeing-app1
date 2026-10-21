@@ -59,6 +59,14 @@ interface MachineTaskData {
   showShadeDropdown: boolean;
   shadeSearchText: string;
   error?: string;
+  carried_forward?: boolean;
+  original_date?: string | null;
+  status?: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  duration?: string | null;
+  completed_at?: string | null;
+  assigned_to?: string;
 }
 
 const emptyTask = (machineId: string, index: number): MachineTaskData => ({
@@ -70,6 +78,13 @@ const emptyTask = (machineId: string, index: number): MachineTaskData => ({
   showShadeDropdown: false,
   shadeSearchText: '',
   error: '',
+  carried_forward: false,
+  original_date: null,
+  status: 'pending',
+  start_time: null,
+  end_time: null,
+  duration: null,
+  completed_at: null,
 });
 
 const initialMachineTasks = () => {
@@ -154,6 +169,14 @@ export default function AddDailyTask() {
             showShadeDropdown: false,
             shadeSearchText: t.shade_number ? String(t.shade_number) : '',
             error: '',
+            carried_forward: t.carried_forward || false,
+            original_date: t.original_date || null,
+            status: t.status || 'pending',
+            start_time: t.start_time || null,
+            end_time: t.end_time || null,
+            duration: t.duration || null,
+            completed_at: t.completed_at || null,
+            assigned_to: t.assigned_to || selectedMaster,
           }));
           while (newMachineTasks[m.id].length < 5) {
             newMachineTasks[m.id].push(emptyTask(m.id, newMachineTasks[m.id].length));
@@ -371,13 +394,20 @@ export default function AddDailyTask() {
             const ply2 = parseInt(task.springs2ply) || 0;
             const ply3 = parseInt(task.springs3ply) || 0;
             validTasks.push({
-              id: Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11),
+              id: task.id && !task.id.startsWith(`${machine.id}-`) ? task.id : (Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11)),
               shade_id: task.shadeId,
               shade_number: task.shadeNumber,
               springs_2ply: ply2,
               springs_3ply: ply3,
               weight: machine.capacity,
-              assigned_to: selectedMaster,
+              assigned_to: task.assigned_to || selectedMaster,
+              carried_forward: task.carried_forward || false,
+              original_date: task.original_date || null,
+              status: task.status || 'pending',
+              start_time: task.start_time || null,
+              end_time: task.end_time || null,
+              duration: task.duration || null,
+              completed_at: task.completed_at || null,
             });
           }
         }
@@ -686,6 +716,13 @@ export default function AddDailyTask() {
                                 setActiveTask(isActive ? null : { machineId: machine.id, taskId: task.id });
                               }}
                             >
+                              {task.carried_forward && (
+                                <View style={{ backgroundColor: '#FEFCBF', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, alignSelf: 'flex-start', marginBottom: 2 }}>
+                                  <Text style={{ fontSize: 9, fontWeight: 'bold', color: '#B7791F' }}>
+                                    C/F {task.original_date ? `Prev: ${task.original_date}` : ''}
+                                  </Text>
+                                </View>
+                              )}
                               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                                 <Text
                                   numberOfLines={1}

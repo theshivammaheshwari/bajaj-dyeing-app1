@@ -16,7 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -723,16 +723,195 @@ async def create_daily_task(task: DailyTaskCreate):
     return daily_task_helper(created_task)
 
 
+def is_uncompleted_task(t: dict) -> bool:
+    if not isinstance(t, dict):
+        return False
+    # Must have a shade number or shade id to be a meaningful task
+    if not t.get("shade_number") and not t.get("shade_id"):
+        return False
+    status = str(t.get("status", "pending") or "pending").strip().lower()
+    return status not in ["completed", "rejected"]
+
+
+async def perform_daily_rollover(to_date: str, from_date: Optional[str] = None) -> int:
+    """Move uncompleted (pending or in-progress) tasks from past date(s) into to_date"""
+    total_moved = 0
+    machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
+
+    source_docs = []
+    if from_date and str(from_date).strip():
+        doc = await db.daily_tasks.find_one({"date": str(from_date).strip()})
+        if doc:
+            source_docs = [doc]
+    else:
+        # Find all past daily tasks before to_date that have uncompleted tasks (sorted chronologically)
+        past_docs = await db.daily_tasks.find({"date": {"$lt": to_date}}).sort("date", 1).to_list(100)
+        for d in past_docs:
+            has_pending = False
+            for m in machines:
+                m_tasks = d.get(m) or []
+                if isinstance(m_tasks, list) and any(is_uncompleted_task(t) for t in m_tasks):
+                    has_pending = True
+                    break
+            if not has_pending:
+                auto_tasks = d.get("automatic_tasks") or []
+                if isinstance(auto_tasks, list) and any(is_uncompleted_task(t) for t in auto_tasks):
+                    has_pending = True
+            if has_pending:
+                source_docs.append(d)
+
+    if not source_docs:
+        return 0
+
+    to_task = await db.daily_tasks.find_one({"date": to_date})
+
+    for from_task in source_docs:
+        src_date = from_task.get("date", "")
+        if not src_date or src_date >= to_date:
+            continue
+
+        # 1. Manual tasks across M1 to M11
+        for machine_id in machines:
+            source_tasks = from_task.get(machine_id) or []
+            if not isinstance(source_tasks, list):
+                continue
+            
+            pending_tasks = [t for t in source_tasks if is_uncompleted_task(t)]
+            if not pending_tasks:
+                continue
+
+            for task in pending_tasks:
+                task["carried_forward"] = True
+                if not task.get("original_date"):
+                    task["original_date"] = src_date
+                # Reset in-progress tasks back to pending for the new working day
+                if str(task.get("status", "")).strip().lower() == "in-progress":
+                    task["status"] = "pending"
+                    task["start_time"] = None
+                    task["end_time"] = None
+                    task["duration"] = None
+
+            if to_task:
+                existing_tasks = to_task.get(machine_id) or []
+                if not isinstance(existing_tasks, list):
+                    existing_tasks = []
+
+                # Deduplicate: Avoid duplicating tasks if already rolled over into to_task
+                existing_ids = {t.get("id") for t in existing_tasks if isinstance(t, dict) and t.get("id")}
+                existing_signatures = {
+                    f"{str(t.get('shade_number', '')).strip()}_{str(t.get('assigned_to', '')).strip()}_{str(t.get('original_date', '')).strip()}"
+                    for t in existing_tasks if isinstance(t, dict) and t.get("carried_forward")
+                }
+
+                tasks_to_add = []
+                for t in pending_tasks:
+                    tid = t.get("id")
+                    tsig = f"{str(t.get('shade_number', '')).strip()}_{str(t.get('assigned_to', '')).strip()}_{str(t.get('original_date', '')).strip()}"
+                    if tid and tid in existing_ids:
+                        continue
+                    if tsig in existing_signatures:
+                        continue
+                    tasks_to_add.append(t)
+
+                if tasks_to_add:
+                    updated_tasks = tasks_to_add + existing_tasks
+                    await db.daily_tasks.update_one(
+                        {"_id": to_task["_id"]},
+                        {"$set": {machine_id: updated_tasks}}
+                    )
+                    to_task[machine_id] = updated_tasks
+                    total_moved += len(tasks_to_add)
+            else:
+                new_task = {
+                    "date": to_date,
+                    "created_at": datetime.utcnow(),
+                    machine_id: pending_tasks
+                }
+                result = await db.daily_tasks.insert_one(new_task)
+                to_task = await db.daily_tasks.find_one({"_id": result.inserted_id})
+                total_moved += len(pending_tasks)
+
+            # Remove rolled-over tasks from source date
+            moved_ids = {t.get("id") for t in pending_tasks if t.get("id")}
+            remaining_tasks = [t for t in source_tasks if not is_uncompleted_task(t) and (not t.get("id") or t.get("id") not in moved_ids)]
+            await db.daily_tasks.update_one(
+                {"_id": from_task["_id"]},
+                {"$set": {machine_id: remaining_tasks}}
+            )
+
+        # 2. Automatic tasks
+        source_auto_tasks = from_task.get("automatic_tasks") or []
+        if isinstance(source_auto_tasks, list):
+            pending_auto = [t for t in source_auto_tasks if is_uncompleted_task(t)]
+            if pending_auto:
+                for task in pending_auto:
+                    task["carried_forward"] = True
+                    if not task.get("original_date"):
+                        task["original_date"] = src_date
+                    if str(task.get("status", "")).strip().lower() == "in-progress":
+                        task["status"] = "pending"
+                        task["start_time"] = None
+                        task["end_time"] = None
+                        task["duration"] = None
+
+                if to_task:
+                    existing_auto = to_task.get("automatic_tasks") or []
+                    if not isinstance(existing_auto, list):
+                        existing_auto = []
+
+                    existing_ids = {t.get("id") for t in existing_auto if isinstance(t, dict) and t.get("id")}
+                    tasks_to_add = [t for t in pending_auto if not (t.get("id") and t.get("id") in existing_ids)]
+
+                    if tasks_to_add:
+                        updated_auto = tasks_to_add + existing_auto
+                        await db.daily_tasks.update_one(
+                            {"_id": to_task["_id"]},
+                            {"$set": {"automatic_tasks": updated_auto}}
+                        )
+                        to_task["automatic_tasks"] = updated_auto
+                        total_moved += len(tasks_to_add)
+                else:
+                    new_task = {
+                        "date": to_date,
+                        "created_at": datetime.utcnow(),
+                        "automatic_tasks": pending_auto
+                    }
+                    result = await db.daily_tasks.insert_one(new_task)
+                    to_task = await db.daily_tasks.find_one({"_id": result.inserted_id})
+                    total_moved += len(pending_auto)
+
+                moved_ids = {t.get("id") for t in pending_auto if t.get("id")}
+                remaining_auto = [t for t in source_auto_tasks if not is_uncompleted_task(t) and (not t.get("id") or t.get("id") not in moved_ids)]
+                await db.daily_tasks.update_one(
+                    {"_id": from_task["_id"]},
+                    {"$set": {"automatic_tasks": remaining_auto}}
+                )
+
+    return total_moved
+
+
 @api_router.get("/daily-tasks", response_model=List[DailyTask])
 async def get_daily_tasks():
-    """Get all daily tasks"""
+    """Get all daily tasks with automatic rollover of uncompleted tasks for today"""
+    try:
+        ist_today = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d")
+        await perform_daily_rollover(to_date=ist_today)
+    except Exception as err:
+        print(f"Auto-rollover on get_daily_tasks error: {err}")
     tasks = await db.daily_tasks.find().sort("date", -1).to_list(1000)
     return [daily_task_helper(task) for task in tasks]
 
 
 @api_router.get("/daily-tasks/{date}")
 async def get_daily_task_by_date(date: str):
-    """Get daily task by date"""
+    """Get daily task by date with automatic rollover of any pending past tasks"""
+    try:
+        ist_today = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%Y-%m-%d")
+        if date >= ist_today:
+            await perform_daily_rollover(to_date=date)
+    except Exception as err:
+        print(f"Auto-rollover on get_daily_task_by_date error: {err}")
+
     task = await db.daily_tasks.find_one({"date": date})
     if not task:
         return {"message": "No task found for this date"}
@@ -1406,94 +1585,13 @@ async def calculate_payment(task_id: str, assigned_to: Optional[str] = None):
 
 
 @api_router.post("/daily-tasks/rollover-pending")
-async def rollover_pending_tasks(from_date: str, to_date: str):
-    """Move pending tasks from one date to another (auto-rollover)"""
+async def rollover_pending_tasks(to_date: str, from_date: Optional[str] = None):
+    """Move uncompleted (pending or in-progress) tasks from past date(s) to target date"""
     try:
-        # Get tasks from source date
-        from_task = await db.daily_tasks.find_one({"date": from_date})
-        if not from_task:
-            return {"message": "No tasks found for source date", "moved": 0}
-        
-        # Get or create tasks for target date
-        to_task = await db.daily_tasks.find_one({"date": to_date})
-        
-        machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11']
-        moved_count = 0
-        
-        # 1. Rollover Manual Tasks
-        for machine_id in machines:
-            source_tasks = from_task.get(machine_id, [])
-            # Get only pending tasks
-            pending_tasks = [t for t in source_tasks if t.get('status', 'pending') == 'pending']
-            
-            if pending_tasks:
-                for task in pending_tasks:
-                    task["carried_forward"] = True
-                    if "original_date" not in task or not task["original_date"]:
-                        task["original_date"] = from_date
-
-                if to_task:
-                    # PREPEND to existing tasks (pending tasks first, then new tasks)
-                    existing_tasks = to_task.get(machine_id, [])
-                    updated_tasks = pending_tasks + existing_tasks  # Reversed order
-                    await db.daily_tasks.update_one(
-                        {"_id": to_task["_id"]},
-                        {"$set": {machine_id: updated_tasks}}
-                    )
-                else:
-                    # Create new task for target date
-                    new_task = {
-                        "date": to_date,
-                        "created_at": datetime.utcnow(),
-                        machine_id: pending_tasks
-                    }
-                    result = await db.daily_tasks.insert_one(new_task)
-                    to_task = await db.daily_tasks.find_one({"_id": result.inserted_id})
-                
-                moved_count += len(pending_tasks)
-                
-                # Remove pending tasks from source date
-                remaining_tasks = [t for t in source_tasks if t.get('status', 'pending') != 'pending']
-                await db.daily_tasks.update_one(
-                    {"_id": from_task["_id"]},
-                    {"$set": {machine_id: remaining_tasks}}
-                )
-
-        # 2. Rollover Automatic Tasks
-        source_auto_tasks = from_task.get("automatic_tasks", [])
-        pending_auto_tasks = [t for t in source_auto_tasks if t.get('status', 'pending') == 'pending']
-        if pending_auto_tasks:
-            for task in pending_auto_tasks:
-                task["carried_forward"] = True
-                if "original_date" not in task or not task["original_date"]:
-                    task["original_date"] = from_date
-
-            if to_task:
-                existing_auto = to_task.get("automatic_tasks", [])
-                updated_auto = pending_auto_tasks + existing_auto
-                await db.daily_tasks.update_one(
-                    {"_id": to_task["_id"]},
-                    {"$set": {"automatic_tasks": updated_auto}}
-                )
-            else:
-                new_task = {
-                    "date": to_date,
-                    "created_at": datetime.utcnow(),
-                    "automatic_tasks": pending_auto_tasks
-                }
-                result = await db.daily_tasks.insert_one(new_task)
-                to_task = await db.daily_tasks.find_one({"_id": result.inserted_id})
-            
-            moved_count += len(pending_auto_tasks)
-            remaining_auto = [t for t in source_auto_tasks if t.get('status', 'pending') != 'pending']
-            await db.daily_tasks.update_one(
-                {"_id": from_task["_id"]},
-                {"$set": {"automatic_tasks": remaining_auto}}
-            )
-        
+        moved = await perform_daily_rollover(to_date=to_date, from_date=from_date)
         return {
-            "message": f"Moved {moved_count} pending tasks from {from_date} to {to_date}",
-            "moved": moved_count
+            "message": f"Successfully moved {moved} task(s) to {to_date}",
+            "moved": moved
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

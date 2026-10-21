@@ -152,40 +152,18 @@ export default function DyeingMaster() {
 
   const checkAndRollover = async () => {
     try {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-      const response = await fetch(`${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/${yesterdayStr}`);
-      const yesterdayData = await response.json();
-
-      if (yesterdayData.id) {
-        let hasPending = false;
-        const machines = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9', 'm10', 'm11'];
-        for (const m of machines) {
-          const tasks = yesterdayData[m] || [];
-          if (tasks.some((t: any) => t.status === 'pending' || !t.status)) {
-            hasPending = true;
-            break;
-          }
-        }
-
-        if (hasPending) {
-          const rolloverResponse = await fetch(
-            `${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/rollover-pending?from_date=${yesterdayStr}&to_date=${date}`,
-            { method: 'POST' }
-          );
-          const result = await rolloverResponse.json();
-          console.log('Auto-rollover:', result);
-        }
-      }
-
+      // Trigger automatic rollover on backend (handles weekends, holidays, in-progress tasks, and all machines)
+      await fetch(
+        `${EXPO_PUBLIC_BACKEND_URL}/api/daily-tasks/rollover-pending?to_date=${date}`,
+        { method: 'POST' }
+      ).catch(() => {});
       fetchTodayTask();
     } catch (error) {
       console.error('Rollover check error:', error);
       fetchTodayTask();
     }
   };
+
 
   const fetchTodayTask = async (isInitialLoad = false) => {
     try {
