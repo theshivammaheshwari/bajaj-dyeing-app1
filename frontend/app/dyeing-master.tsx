@@ -8,6 +8,8 @@ import { useRouter } from 'expo-router';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
 import { printCompletedTasksPdf, printAllTasksPdf } from '../lib/pdf-utils';
+import DatePickerField from '../components/DatePickerField';
+import { getTodayDateString } from '../lib/date-utils';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MACHINES = [
@@ -73,7 +75,7 @@ export default function DyeingMaster() {
   const [dailyTask, setDailyTask] = useState<any>(null);
   const [payment, setPayment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getTodayDateString());
   const [weightInputs, setWeightInputs] = useState<{ [key: string]: { ply2: string; ply3: string } }>({});
   const [activeTab, setActiveTab] = useState<'manual' | 'automatic'>('manual');
   const [isUpdating, setIsUpdating] = useState<{ [taskId: string]: boolean }>({});
@@ -143,7 +145,7 @@ export default function DyeingMaster() {
 
   useEffect(() => {
     if (!userRole) return;
-    if (date === new Date().toISOString().split('T')[0]) {
+    if (date === getTodayDateString()) {
       checkAndRollover();
     } else {
       fetchTodayTask(true);
@@ -654,13 +656,13 @@ export default function DyeingMaster() {
       </View>
 
       <View style={[styles.dateBar, { backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }]}>
-        <View style={[styles.dateInputContainer, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-          <TextInput
-            style={[styles.dateInput, { color: colors.primary }]}
+        <View style={{ flex: 1, minWidth: 260 }}>
+          <DatePickerField
             value={date}
-            onChangeText={setDate}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={colors.textSecondary}
+            onChange={setDate}
+            placeholder="Select Date"
+            showArrows={true}
+            showTodayButton={true}
           />
         </View>
         {Platform.OS === 'web' && dailyTask && (

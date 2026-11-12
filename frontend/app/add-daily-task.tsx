@@ -17,6 +17,8 @@ import { useRouter } from 'expo-router';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
 import ShadeBatchHistoryModal from '../components/ShadeBatchHistoryModal';
+import DatePickerField from '../components/DatePickerField';
+import { getTodayDateString, isValidDateString } from '../lib/date-utils';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 
@@ -98,7 +100,7 @@ const initialMachineTasks = () => {
 export default function AddDailyTask() {
   const router = useRouter();
   const { colors } = useTheme();
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getTodayDateString());
   const [shades, setShades] = useState<Shade[]>([]);
   const [loading, setLoading] = useState(false);
   const [machineTasks, setMachineTasks] = useState<{ [key: string]: MachineTaskData[] }>(initialMachineTasks());
@@ -350,8 +352,8 @@ export default function AddDailyTask() {
 
   const validateAndSave = async () => {
     setSaveError('');
-    if (!date) {
-      setSaveError('Please select a date');
+    if (!date || !isValidDateString(date)) {
+      setSaveError('Please select a valid date from calendar');
       return;
     }
 
@@ -572,17 +574,17 @@ export default function AddDailyTask() {
             <Text style={[styles.backButtonText, { color: colors.primary }]}>← Back</Text>
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Add Daily Task</Text>
-          <View style={[styles.headerActions]}>
-            <View style={[styles.dateInputContainer, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-              <TextInput
-                style={[styles.dateInput, { color: colors.primary }]}
-                value={date}
-                onChangeText={setDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textSecondary}
-              />
-            </View>
-          </View>
+        </View>
+
+        {/* Date Selector Row */}
+        <View style={{ paddingHorizontal: 15, paddingVertical: 8, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+          <DatePickerField
+            value={date}
+            onChange={setDate}
+            label="📅 Task Date (कैलेंडर से तारीख चुनें):"
+            showArrows={true}
+            showTodayButton={true}
+          />
         </View>
 
         {/* Master Selector Row */}

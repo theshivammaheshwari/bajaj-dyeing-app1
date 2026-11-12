@@ -16,6 +16,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
 import ShadeBatchHistoryModal from '../components/ShadeBatchHistoryModal';
+import { formatDisplayDate, getTodayDateString } from '../lib/date-utils';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 
@@ -76,7 +77,7 @@ export default function EditDailyTask() {
   const router = useRouter();
   const { taskId } = useLocalSearchParams();
   const { colors } = useTheme();
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(getTodayDateString());
   const [shades, setShades] = useState<Shade[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTask, setActiveTask] = useState<{ machineId: string; taskId: string } | null>(null);
@@ -370,14 +371,10 @@ export default function EditDailyTask() {
             <Text style={[styles.backButtonText, { color: colors.primary }]}>← Back</Text>
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Edit Daily Task</Text>
-          <View style={[styles.dateInputContainer, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-            <TextInput
-              style={[styles.dateInput, { color: colors.primary }]}
-              value={date}
-              editable={false}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textSecondary}
-            />
+          {/* Date displayed as read-only badge - date comes from loaded task, not user input */}
+          <View style={{ paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.primaryLight, borderRadius: 8, borderWidth: 1, borderColor: colors.primary }}>
+            <Text style={{ fontSize: 11, color: colors.primary, fontWeight: 'bold', textAlign: 'center' }}>📅 {date}</Text>
+            {date ? <Text style={{ fontSize: 10, color: colors.textSecondary, textAlign: 'center' }}>{formatDisplayDate(date, false)}</Text> : null}
           </View>
         </View>
 

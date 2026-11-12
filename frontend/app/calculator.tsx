@@ -17,6 +17,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
 import ShadeBatchHistoryModal from '../components/ShadeBatchHistoryModal';
+import DatePickerField from '../components/DatePickerField';
+import { getTodayDateString } from '../lib/date-utils';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 const MACHINE_WEIGHTS = [6, 10.5, 12, 15, 24];
@@ -113,7 +115,7 @@ export default function Calculator() {
     
     // Set initial date
     let activeDate = await AsyncStorage.getItem('active_working_date');
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateString();
     setAssignDate(activeDate || today);
     if (userRole === 'user2') {
       setAssignMaster('user2');
@@ -129,7 +131,7 @@ export default function Calculator() {
       return;
     }
     
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateString();
     if (assignDate < today) {
       showAlert('Error', 'Cannot assign tasks to past dates.');
       return;
@@ -1213,28 +1215,13 @@ export default function Calculator() {
             </Text>
             
             <View style={{ marginBottom: 24 }}>
-              <Text style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8, fontWeight: '600' }}>
-                Assignment Date
-              </Text>
-              <TextInput
-                style={{
-                  borderWidth: 1.5,
-                  borderColor: colors.border,
-                  borderRadius: 12,
-                  padding: 12,
-                  fontSize: 16,
-                  color: colors.text,
-                  backgroundColor: colors.inputBackground,
-                  textAlign: 'center',
-                  fontWeight: 'bold'
-                }}
+              <DatePickerField
                 value={assignDate}
-                onChangeText={setAssignDate}
-                placeholder="YYYY-MM-DD"
+                onChange={setAssignDate}
+                label="📅 Assignment Date (कैलेंडर से तारीख चुनें)"
+                showArrows={true}
+                showTodayButton={true}
               />
-              <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 8, textAlign: 'center' }}>
-                Format: YYYY-MM-DD
-              </Text>
             </View>
 
             {/* Dyeing Master Selector */}

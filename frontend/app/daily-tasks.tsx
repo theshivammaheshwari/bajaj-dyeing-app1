@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
@@ -18,6 +17,8 @@ import { getBackendBaseUrl } from '../lib/api-base';
 import { useTheme } from '../context/ThemeContext';
 import { printDailyTaskPdf } from '../lib/pdf-utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DatePickerField from '../components/DatePickerField';
+import { getTodayDateString, formatDisplayDate } from '../lib/date-utils';
 
 const EXPO_PUBLIC_BACKEND_URL = getBackendBaseUrl();
 
@@ -76,7 +77,7 @@ export default function DailyTasks() {
     
     // Set today as default active working date for Calculator
     const setTodayAsDefault = async () => {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getTodayDateString();
       const current = await AsyncStorage.getItem('active_working_date');
       if (!current) {
         await AsyncStorage.setItem('active_working_date', today);
@@ -88,13 +89,15 @@ export default function DailyTasks() {
   // Save active working date for Calculator integration
   useEffect(() => {
     const saveActiveDate = async () => {
-      // YYYY-MM-DD is 10 chars
+      // Calendar picker always gives YYYY-MM-DD (10 chars) or empty
       if (dateFilter.trim().length === 10) {
         await AsyncStorage.setItem('active_working_date', dateFilter.trim());
       }
     };
     saveActiveDate();
   }, [dateFilter]);
+
+  // Filter: calendar gives exact YYYY-MM-DD, support partial month filter (2026-11) too
 
   const handleBack = () => {
     if (router.canGoBack()) {
@@ -228,7 +231,9 @@ export default function DailyTasks() {
       <View key={task.id} style={[styles.taskCard, { backgroundColor: colors.card, borderColor: colors.border, shadowColor: colors.shadow }]}>
         {/* Task Header with date + actions */}
         <View style={styles.taskHeader}>
-          <Text style={[styles.dateText, { color: colors.text }]}>📅 {task.date}</Text>
+          <Text style={[styles.dateText, { color: colors.text }]}>
+            📅 {formatDisplayDate(task.date, true)} ({task.date})
+          </Text>
           <View style={styles.taskActions}>
             <TouchableOpacity
               style={[styles.actionBtn, { backgroundColor: colors.secondary }]}
@@ -427,13 +432,15 @@ export default function DailyTasks() {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.dateFilterContainer, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-          <TextInput
-            style={[styles.dateFilterInput, { color: colors.text }]}
-            placeholder="🔍 Filter by date (e.g. 2026-04)"
-            placeholderTextColor={colors.textSecondary}
+        <View style={{ marginTop: 12 }}>
+          <DatePickerField
             value={dateFilter}
-            onChangeText={setDateFilter}
+            onChange={setDateFilter}
+            placeholder="📅 Filter by Date (All Tasks shown)"
+            allowClear={true}
+            onClear={() => setDateFilter('')}
+            label="Filter Daily Tasks by Date (कैलेंडर से तारीख चुनें):"
+            showArrows={!!dateFilter}
           />
         </View>
       </View>
@@ -497,15 +504,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     flex: 1,
-  },
-  dateFilterContainer: {
-    borderRadius: 10,
-    borderWidth: 1.5,
-    paddingHorizontal: 12,
-  },
-  dateFilterInput: {
-    fontSize: 14,
-    paddingVertical: 8,
   },
   scrollView: {
     flex: 1,
