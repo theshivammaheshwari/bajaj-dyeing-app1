@@ -50,6 +50,7 @@ interface AutoAssignRow {
   machineId: string;
   springs2ply: string;
   springs3ply: string;
+  springs242: string;
 }
 
 interface MachineTaskData {
@@ -58,6 +59,7 @@ interface MachineTaskData {
   shadeNumber: string;
   springs2ply: string;
   springs3ply: string;
+  springs242: string;
   showShadeDropdown: boolean;
   shadeSearchText: string;
   error?: string;
@@ -77,6 +79,7 @@ const emptyTask = (machineId: string, index: number): MachineTaskData => ({
   shadeNumber: '',
   springs2ply: '',
   springs3ply: '',
+  springs242: '',
   showShadeDropdown: false,
   shadeSearchText: '',
   error: '',
@@ -168,6 +171,7 @@ export default function AddDailyTask() {
             shadeNumber: t.shade_number ? String(t.shade_number) : '',
             springs2ply: t.springs_2ply !== undefined ? String(t.springs_2ply) : '0',
             springs3ply: t.springs_3ply !== undefined ? String(t.springs_3ply) : '0',
+            springs242: t.springs_242 !== undefined ? String(t.springs_242) : '0',
             showShadeDropdown: false,
             shadeSearchText: t.shade_number ? String(t.shade_number) : '',
             error: '',
@@ -236,38 +240,30 @@ export default function AddDailyTask() {
             : task
         ),
       }));
-    } else if (field === 'springs2ply' || field === 'springs3ply') {
+    } else if (field === 'springs2ply' || field === 'springs3ply' || field === 'springs242') {
       const numVal = parseInt(value as string) || 0;
       let error = '';
 
       if (numVal < 0) {
         error = 'Cannot be negative';
-      } else if (numVal > max) {
-        error = `Exceeds capacity (${max})`;
       }
 
-      if (error) {
-        // Set error but still allow the value to show
-        setMachineTasks(prev => ({
-          ...prev,
-          [machineId]: prev[machineId].map(task =>
-            task.id === taskId
-              ? { ...task, [field]: value, error }
-              : task
-          ),
-        }));
-        return;
-      }
-
-      const otherField = field === 'springs2ply' ? 'springs3ply' : 'springs2ply';
-      const otherVal = Math.max(0, max - numVal).toString();
       setMachineTasks(prev => ({
         ...prev,
-        [machineId]: prev[machineId].map(task =>
-          task.id === taskId
-            ? { ...task, [field]: value, [otherField]: otherVal, error: '' }
-            : task
-        ),
+        [machineId]: prev[machineId].map(task => {
+          if (task.id !== taskId) return task;
+          const updated = { ...task, [field]: value };
+          const p2 = parseInt(field === 'springs2ply' ? (value as string) : task.springs2ply) || 0;
+          const p3 = parseInt(field === 'springs3ply' ? (value as string) : task.springs3ply) || 0;
+          const p242 = parseInt(field === 'springs242' ? (value as string) : task.springs242) || 0;
+          const total = p2 + p3 + p242;
+          if (total > max) {
+            updated.error = `Total (${total}) exceeds capacity (${max})`;
+          } else {
+            updated.error = error;
+          }
+          return updated;
+        }),
       }));
     } else {
       setMachineTasks(prev => ({
@@ -296,6 +292,7 @@ export default function AddDailyTask() {
           shadeNumber: '',
           springs2ply: '',
           springs3ply: '',
+          springs242: '',
           showShadeDropdown: false,
           shadeSearchText: '',
           error: '',
@@ -365,12 +362,13 @@ export default function AddDailyTask() {
         if (task.shadeId) {
           const ply2 = parseInt(task.springs2ply) || 0;
           const ply3 = parseInt(task.springs3ply) || 0;
-          const total = ply2 + ply3;
+          const ply242 = parseInt(task.springs242) || 0;
+          const total = ply2 + ply3 + ply242;
           if (total > machine.totalSprings) {
             setSaveError(`${machine.name} Task ${i + 1}: Total (${total}) exceeds capacity (${machine.totalSprings})`);
             return;
           }
-          if (ply2 < 0 || ply3 < 0) {
+          if (ply2 < 0 || ply3 < 0 || ply242 < 0) {
             setSaveError(`${machine.name} Task ${i + 1}: Values cannot be negative`);
             return;
           }
@@ -395,12 +393,14 @@ export default function AddDailyTask() {
           if (task.shadeId) {
             const ply2 = parseInt(task.springs2ply) || 0;
             const ply3 = parseInt(task.springs3ply) || 0;
+            const ply242 = parseInt(task.springs242) || 0;
             validTasks.push({
               id: task.id && !task.id.startsWith(`${machine.id}-`) ? task.id : (Date.now().toString() + '-' + Math.random().toString(36).substring(2, 11)),
               shade_id: task.shadeId,
               shade_number: task.shadeNumber,
               springs_2ply: ply2,
               springs_3ply: ply3,
+              springs_242: ply242,
               weight: machine.capacity,
               assigned_to: task.assigned_to || selectedMaster,
               carried_forward: task.carried_forward || false,
@@ -463,13 +463,14 @@ export default function AddDailyTask() {
     // 1. Validation
     for (let i = 0; i < autoAssignRows.length; i++) {
       const row = autoAssignRows[i];
-      if (!row.shadeId || !row.weight || !row.springs2ply || !row.springs3ply) {
+      if (!row.shadeId || !row.weight || (row.springs2ply === '' && row.springs3ply === '' && row.springs242 === '')) {
         showAlert('Error', `Row ${i + 1} has empty fields. Please fill all fields.`);
         return;
       }
       const ply2 = parseInt(row.springs2ply) || 0;
       const ply3 = parseInt(row.springs3ply) || 0;
-      if (ply2 < 0 || ply3 < 0) {
+      const ply242 = parseInt(row.springs242) || 0;
+      if (ply2 < 0 || ply3 < 0 || ply242 < 0) {
         showAlert('Error', `Row ${i + 1}: Values cannot be negative.`);
         return;
       }
@@ -487,6 +488,7 @@ export default function AddDailyTask() {
         shade_number: row.shadeNumber,
         springs_2ply: parseInt(row.springs2ply) || 0,
         springs_3ply: parseInt(row.springs3ply) || 0,
+        springs_242: parseInt(row.springs242) || 0,
         weight: row.weight,
         type: 'automatic',
         machine: null,
@@ -534,7 +536,7 @@ export default function AddDailyTask() {
   const addAutoAssignRow = () => {
     setAutoAssignRows(prev => [
       ...prev, 
-      { id: Date.now().toString() + Math.random(), shadeId: '', shadeNumber: '', weight: '', machineId: '', springs2ply: '', springs3ply: '' }
+      { id: Date.now().toString() + Math.random(), shadeId: '', shadeNumber: '', weight: '', machineId: '', springs2ply: '', springs3ply: '', springs242: '' }
     ]);
   };
 
@@ -854,6 +856,21 @@ export default function AddDailyTask() {
                                       placeholderTextColor={colors.textSecondary}
                                     />
                                   </View>
+                                  <View style={styles.inlinePlyInputWrap}>
+                                    <Text style={[styles.inlinePlyLabel, { color: colors.textSecondary }]}>2/42</Text>
+                                    <TextInput
+                                      style={[
+                                        styles.inlinePlyInput,
+                                        { color: colors.text, backgroundColor: colors.inputBackground },
+                                        hasError && { borderColor: '#ef4444', borderWidth: 1 },
+                                      ]}
+                                      value={task.springs242}
+                                      onChangeText={val => updateTask(machine.id, task.id, 'springs242', val)}
+                                      keyboardType="number-pad"
+                                      placeholder="0"
+                                      placeholderTextColor={colors.textSecondary}
+                                    />
+                                  </View>
                                 </View>
                                 {hasError && (
                                   <Text style={styles.cellErrorText}>⚠ {task.error}</Text>
@@ -877,9 +894,15 @@ export default function AddDailyTask() {
                                       {task.springs3ply || 0}
                                     </Text>
                                   </View>
+                                  <View style={styles.summaryPlyItem}>
+                                    <Text style={[styles.summaryPlyLabel, { color: colors.textSecondary }]}>2/42:</Text>
+                                    <Text style={[styles.summaryPlyValue, { color: colors.text }]}>
+                                      {task.springs242 || 0}
+                                    </Text>
+                                  </View>
                                 </View>
                                 <Text style={[styles.summaryTotalText, { color: colors.primary }]}>
-                                  Total: {(parseInt(task.springs2ply) || 0) + (parseInt(task.springs3ply) || 0)}/{machine.totalSprings}
+                                  Total: {(parseInt(task.springs2ply) || 0) + (parseInt(task.springs3ply) || 0) + (parseInt(task.springs242) || 0)}/{machine.totalSprings}
                                 </Text>
                                 {hasError && (
                                   <Text style={styles.cellErrorText}>⚠ {task.error}</Text>
@@ -999,7 +1022,7 @@ export default function AddDailyTask() {
                     </View>
                   </View>
 
-                  {/* 2P & 3P Inputs Row */}
+                  {/* 2P, 3P & 2/42 Inputs Row */}
                   <View style={{ flexDirection: 'row', gap: 10 }}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: colors.textSecondary, marginBottom: 5 }}>2P Springs</Text>
@@ -1018,6 +1041,16 @@ export default function AddDailyTask() {
                         keyboardType="numeric"
                         value={row.springs3ply}
                         onChangeText={(v) => updateAutoAssignRow(row.id, 'springs3ply', v)}
+                        placeholder="0"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.textSecondary, marginBottom: 5 }}>2/42 Springs</Text>
+                      <TextInput
+                        style={[styles.smallInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground }]}
+                        keyboardType="numeric"
+                        value={row.springs242}
+                        onChangeText={(v) => updateAutoAssignRow(row.id, 'springs242', v)}
                         placeholder="0"
                       />
                     </View>
@@ -1303,10 +1336,11 @@ const styles = StyleSheet.create({
   inlinePlyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 4,
     marginTop: 4,
   },
   inlinePlyInputWrap: {
-    flex: 0.48,
+    flex: 1,
   },
   inlinePlyLabel: {
     fontSize: 10,

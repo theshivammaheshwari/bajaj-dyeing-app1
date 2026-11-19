@@ -45,6 +45,7 @@ interface MachineTaskData {
   shadeNumber: string;
   springs2ply: string;
   springs3ply: string;
+  springs242: string;
   showShadeDropdown: boolean;
   shadeSearchText: string;
   error?: string;
@@ -64,6 +65,7 @@ const emptyTask = (machineId: string, index: number, assigned_to: string = 'user
   shadeNumber: '',
   springs2ply: '',
   springs3ply: '',
+  springs242: '',
   showShadeDropdown: false,
   shadeSearchText: '',
   error: '',
@@ -158,6 +160,7 @@ export default function EditDailyTask() {
             shadeNumber: t.shade_number ? String(t.shade_number) : '',
             springs2ply: t.springs_2ply !== undefined ? String(t.springs_2ply) : '0',
             springs3ply: t.springs_3ply !== undefined ? String(t.springs_3ply) : '0',
+            springs242: t.springs_242 !== undefined ? String(t.springs_242) : '0',
             showShadeDropdown: false,
             shadeSearchText: t.shade_number ? String(t.shade_number) : '',
             error: '',
@@ -213,23 +216,25 @@ export default function EditDailyTask() {
           const selectedShade = shades.find(s => s.id === value);
           return { ...task, shadeId: value as string, shadeNumber: selectedShade?.shade_number || '', shadeSearchText: selectedShade?.shade_number || '', showShadeDropdown: false };
         }
-        if (field === 'springs2ply' || field === 'springs3ply') {
+        if (field === 'springs2ply' || field === 'springs3ply' || field === 'springs242') {
           const numVal = parseInt(value as string) || 0;
           let error = '';
 
           if (numVal < 0) {
             error = 'Cannot be negative';
-          } else if (numVal > max) {
-            error = `Exceeds capacity (${max})`;
           }
 
-          if (error) {
-            return { ...task, [field]: value, error };
+          const updated = { ...task, [field]: value };
+          const p2 = parseInt(field === 'springs2ply' ? (value as string) : task.springs2ply) || 0;
+          const p3 = parseInt(field === 'springs3ply' ? (value as string) : task.springs3ply) || 0;
+          const p242 = parseInt(field === 'springs242' ? (value as string) : task.springs242) || 0;
+          const total = p2 + p3 + p242;
+          if (total > max) {
+            updated.error = `Total (${total}) exceeds capacity (${max})`;
+          } else {
+            updated.error = error;
           }
-
-          const otherField = field === 'springs2ply' ? 'springs3ply' : 'springs2ply';
-          const otherVal = Math.max(0, max - numVal).toString();
-          return { ...task, [field]: value, [otherField]: otherVal, error: '' };
+          return updated;
         }
         return { ...task, [field]: value };
       })
@@ -283,15 +288,16 @@ export default function EditDailyTask() {
       const tasks = machineTasks[machine.id];
       for (let i = 0; i < tasks.length; i++) {
         const task = tasks[i];
-        if (task.shadeId && (task.springs2ply || task.springs3ply)) {
+        if (task.shadeId && (task.springs2ply || task.springs3ply || task.springs242)) {
           const ply2 = parseInt(task.springs2ply) || 0;
           const ply3 = parseInt(task.springs3ply) || 0;
-          const total = ply2 + ply3;
+          const ply242 = parseInt(task.springs242) || 0;
+          const total = ply2 + ply3 + ply242;
           if (total > machine.totalSprings) {
             setSaveError(`${machine.name} Task ${i + 1}: Total (${total}) exceeds capacity (${machine.totalSprings})`);
             return;
           }
-          if (ply2 < 0 || ply3 < 0) {
+          if (ply2 < 0 || ply3 < 0 || ply242 < 0) {
             setSaveError(`${machine.name} Task ${i + 1}: Values cannot be negative`);
             return;
           }
@@ -314,6 +320,7 @@ export default function EditDailyTask() {
           shade_number: t.shadeNumber,
           springs_2ply: parseInt(t.springs2ply) || 0,
           springs_3ply: parseInt(t.springs3ply) || 0,
+          springs_242: parseInt(t.springs242) || 0,
           weight: machine.capacity,
           completed_at: t.completed_at,
           carried_forward: t.carried_forward,
@@ -618,6 +625,22 @@ export default function EditDailyTask() {
                                       editable={!locked}
                                     />
                                   </View>
+                                  <View style={styles.inlinePlyInputWrap}>
+                                    <Text style={[styles.inlinePlyLabel, { color: colors.textSecondary }]}>2/42</Text>
+                                    <TextInput
+                                      style={[
+                                        styles.inlinePlyInput,
+                                        { color: colors.text, borderColor: colors.border, backgroundColor: colors.inputBackground },
+                                        hasError && { borderColor: '#ef4444', borderWidth: 1 },
+                                      ]}
+                                      value={task.springs242}
+                                      onChangeText={v => updateTask(machine.id, task.id, 'springs242', v)}
+                                      keyboardType="number-pad"
+                                      placeholder="0"
+                                      placeholderTextColor={colors.textSecondary}
+                                      editable={!locked}
+                                    />
+                                  </View>
                                 </View>
 
                                 {hasError && (
@@ -638,9 +661,13 @@ export default function EditDailyTask() {
                                     <Text style={[styles.summaryPlyLabel, { color: colors.textSecondary }]}>3P</Text>
                                     <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{task.springs3ply || 0}</Text>
                                   </View>
+                                  <View style={styles.summaryPlyItem}>
+                                    <Text style={[styles.summaryPlyLabel, { color: colors.textSecondary }]}>2/42</Text>
+                                    <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{task.springs242 || 0}</Text>
+                                  </View>
                                 </View>
                                 <Text style={[styles.summaryTotalText, { color: colors.primary }]}>
-                                  Total: {(parseInt(task.springs2ply) || 0) + (parseInt(task.springs3ply) || 0)}/{machine.totalSprings}
+                                  Total: {(parseInt(task.springs2ply) || 0) + (parseInt(task.springs3ply) || 0) + (parseInt(task.springs242) || 0)}/{machine.totalSprings}
                                 </Text>
                                 {hasError && (
                                   <Text style={styles.cellErrorText}>⚠ {task.error}</Text>
@@ -911,10 +938,11 @@ const styles = StyleSheet.create({
   inlinePlyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 4,
     marginTop: 4,
   },
   inlinePlyInputWrap: {
-    flex: 0.48,
+    flex: 1,
   },
   inlinePlyLabel: {
     fontSize: 10,

@@ -41,6 +41,7 @@ interface MachineTask {
   shade_number: string;
   springs_2ply: number;
   springs_3ply: number;
+  springs_242?: number;
   weight: number;
   type?: 'manual' | 'automatic';
   assigned_to?: string;
@@ -356,15 +357,19 @@ export default function DailyTasks() {
                             <View style={styles.summaryPlyRow}>
                               <View style={styles.summaryPlyItem}>
                                 <Text style={[styles.summaryPlyLabel, { color: colors.textSecondary }]}>2P</Text>
-                                <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{mt.springs_2ply}</Text>
+                                <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{mt.springs_2ply || 0}</Text>
                               </View>
                               <View style={styles.summaryPlyItem}>
                                 <Text style={[styles.summaryPlyLabel, { color: colors.textSecondary }]}>3P</Text>
-                                <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{mt.springs_3ply}</Text>
+                                <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{mt.springs_3ply || 0}</Text>
+                              </View>
+                              <View style={styles.summaryPlyItem}>
+                                <Text style={[styles.summaryPlyLabel, { color: colors.textSecondary }]}>2/42</Text>
+                                <Text style={[styles.summaryPlyValue, { color: colors.text }]}>{mt.springs_242 || 0}</Text>
                               </View>
                             </View>
                             <Text style={[styles.summaryTotalText, { color: colors.primary }]}>
-                              Total: {mt.springs_2ply + mt.springs_3ply}/{machine.totalSprings}
+                              Total: {(mt.springs_2ply || 0) + (mt.springs_3ply || 0) + (mt.springs_242 || 0)}/{machine.totalSprings}
                             </Text>
                           </View>
                         </>

@@ -60,6 +60,7 @@ interface CartItem {
   originalWeight: number;
   twoP?: string;
   threeP?: string;
+  twoFortyTwo?: string;
   dyes: ScaledDye[];
 }
 
@@ -74,6 +75,7 @@ export default function Calculator() {
   const [randomWeight, setRandomWeight] = useState<string>('');
   const [twoPValues, setTwoPValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '15': '', '24': '', 'random': '' });
   const [threePValues, setThreePValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '15': '', '24': '', 'random': '' });
+  const [twoFortyTwoValues, setTwoFortyTwoValues] = useState<{ [key: string]: string }>({ '6': '', '10.5': '', '12': '', '15': '', '24': '', 'random': '' });
   const [machineSelections, setMachineSelections] = useState<{ [key: string]: string }>({
     '6': 'M4',
     '10.5': 'M1',
@@ -96,7 +98,7 @@ export default function Calculator() {
   const [assignDate, setAssignDate] = useState<string>('');
   const [assignMaster, setAssignMaster] = useState<'user1' | 'user2'>('user1');
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [historyModalFilter, setHistoryModalFilter] = useState<'all' | '2ply' | '3ply'>('all');
+  const [historyModalFilter, setHistoryModalFilter] = useState<'all' | '2ply' | '3ply' | '242'>('all');
 
   const showAlert = (title: string, message: string, onOk?: () => void) => {
     if (Platform.OS === 'web') {
@@ -159,6 +161,7 @@ export default function Calculator() {
           shade_number: item.shadeNumber,
           springs_2ply: parseInt(item.twoP || '0'),
           springs_3ply: parseInt(item.threeP || '0'),
+          springs_242: parseInt(item.twoFortyTwo || '0'),
           weight: item.weight,
           status: 'pending',
           type: 'cart-assigned',
@@ -383,6 +386,7 @@ export default function Calculator() {
       originalWeight: shade.original_weight,
       twoP: selectedMachine === 'random' ? twoPValues['random'] : twoPValues[selectedMachine.toString()],
       threeP: selectedMachine === 'random' ? threePValues['random'] : threePValues[selectedMachine.toString()],
+      twoFortyTwo: selectedMachine === 'random' ? twoFortyTwoValues['random'] : twoFortyTwoValues[selectedMachine.toString()],
       dyes: currentDyes,
     };
 
@@ -609,7 +613,7 @@ export default function Calculator() {
                       <div class="weight-tag">${item.weight} kg</div>
                     </div>
                     <div class="p-counts">
-                      2P: ${item.twoP || '0'} &nbsp;&nbsp;&nbsp; 3P: ${item.threeP || '0'}
+                      2P: ${item.twoP || '0'} &nbsp;&nbsp;&nbsp; 3P: ${item.threeP || '0'} &nbsp;&nbsp;&nbsp; 2/42: ${item.twoFortyTwo || '0'}
                     </div>
                     <div class="scaled-info">Scaled to: ${item.weight} kg</div>
                     <table class="recipe-table">
@@ -742,16 +746,18 @@ export default function Calculator() {
               const currentW = selectedMachine.toString();
               const s2 = twoPValues[currentW] || '0';
               const s3 = threePValues[currentW] || '0';
-              let f: 'all' | '2ply' | '3ply' = 'all';
-              if (parseInt(s2) > 0 && parseInt(s3) === 0) f = '2ply';
-              else if (parseInt(s3) > 0 && parseInt(s2) === 0) f = '3ply';
+              const s242 = twoFortyTwoValues[currentW] || '0';
+              let f: 'all' | '2ply' | '3ply' | '242' = 'all';
+              if (parseInt(s2) > 0 && parseInt(s3) === 0 && parseInt(s242) === 0) f = '2ply';
+              else if (parseInt(s3) > 0 && parseInt(s2) === 0 && parseInt(s242) === 0) f = '3ply';
+              else if (parseInt(s242) > 0 && parseInt(s2) === 0 && parseInt(s3) === 0) f = '242';
               setHistoryModalFilter(f);
               setShowHistoryModal(true);
             }}
             style={[styles.calcHistoryBtn, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}
           >
             <Text style={[styles.calcHistoryBtnText, { color: colors.primary }]}>
-              📜 View Past Batch Records & Dates (2P / 3P)
+              📜 View Past Batch Records & Dates (2P / 3P / 2/42)
             </Text>
           </TouchableOpacity>
         </View>
@@ -847,7 +853,7 @@ export default function Calculator() {
                   </View>
                 )}
                 
-                {/* 2P / 3P Inputs */}
+                {/* 2P / 3P / 2/42 Inputs */}
                 <View style={styles.pInputRow}>
                   <View style={styles.pInputWrapper}>
                     <Text style={[styles.pInputLabel, { color: colors.textSecondary }]}>2P</Text>
@@ -866,6 +872,17 @@ export default function Calculator() {
                       style={[styles.pInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                       value={threePValues[weight.toString()]}
                       onChangeText={(val) => setThreePValues(prev => ({ ...prev, [weight.toString()]: val }))}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                  </View>
+                  <View style={styles.pInputWrapper}>
+                    <Text style={[styles.pInputLabel, { color: colors.textSecondary }]}>2/42</Text>
+                    <TextInput
+                      style={[styles.pInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                      value={twoFortyTwoValues[weight.toString()]}
+                      onChangeText={(val) => setTwoFortyTwoValues(prev => ({ ...prev, [weight.toString()]: val }))}
                       keyboardType="numeric"
                       placeholder="0"
                       placeholderTextColor={colors.textSecondary}
@@ -939,7 +956,7 @@ export default function Calculator() {
                 </View>
               </View>
 
-              {/* Random Weight 2P / 3P */}
+              {/* Random Weight 2P / 3P / 2/42 */}
               <View style={[styles.pInputRow, { marginTop: 12 }]}>
                 <View style={styles.pInputWrapper}>
                   <Text style={[styles.pInputLabel, { color: colors.textSecondary }]}>2P</Text>
@@ -958,6 +975,17 @@ export default function Calculator() {
                     style={[styles.pInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                     value={threePValues['random']}
                     onChangeText={(val) => setThreePValues(prev => ({ ...prev, 'random': val }))}
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+                <View style={styles.pInputWrapper}>
+                  <Text style={[styles.pInputLabel, { color: colors.textSecondary }]}>2/42</Text>
+                  <TextInput
+                    style={[styles.pInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                    value={twoFortyTwoValues['random']}
+                    onChangeText={(val) => setTwoFortyTwoValues(prev => ({ ...prev, 'random': val }))}
                     keyboardType="numeric"
                     placeholder="0"
                     placeholderTextColor={colors.textSecondary}
@@ -1138,10 +1166,14 @@ export default function Calculator() {
                               <Text style={styles.cartRcBadgeText}>RC</Text>
                             </View>
                           )}
-                          {(item.twoP || item.threeP) && (
+                          {(item.twoP || item.threeP || item.twoFortyTwo) && (
                             <View style={[styles.cartBadge, { backgroundColor: colors.secondary }]}>
                               <Text style={styles.cartBadgeText}>
-                                {item.twoP ? `2P:${item.twoP}` : ''} {item.threeP ? `3P:${item.threeP}` : ''}
+                                {[
+                                  item.twoP ? `2P:${item.twoP}` : '',
+                                  item.threeP ? `3P:${item.threeP}` : '',
+                                  item.twoFortyTwo ? `2/42:${item.twoFortyTwo}` : '',
+                                ].filter(Boolean).join(' ')}
                               </Text>
                             </View>
                           )}

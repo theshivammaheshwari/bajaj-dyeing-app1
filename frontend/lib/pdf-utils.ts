@@ -21,9 +21,11 @@ interface TaskForPdf {
   shade_number: string;
   springs_2ply: number;
   springs_3ply: number;
+  springs_242?: number;
   status?: string;
   ply2_weight?: number;
   ply3_weight?: number;
+  ply242_weight?: number;
   assigned_to?: string;
 }
 
@@ -261,7 +263,7 @@ function buildGridHTML(
   let headerCells = '<th class="row-num-header">#</th>';
   MACHINES.forEach(m => {
     let tasks = filterTasks((taskData as any)[m.id]);
-    const totalUsed = tasks.reduce((s: number, t: any) => s + (t.springs_2ply || 0) + (t.springs_3ply || 0), 0);
+    const totalUsed = tasks.reduce((s: number, t: any) => s + (t.springs_2ply || 0) + (t.springs_3ply || 0) + (t.springs_242 || 0), 0);
     headerCells += `
       <th>
         <span class="machine-name">${m.name}</span>
@@ -278,7 +280,7 @@ function buildGridHTML(
       const task = tasks[r];
 
       if (task) {
-        const total = (task.springs_2ply || 0) + (task.springs_3ply || 0);
+        const total = (task.springs_2ply || 0) + (task.springs_3ply || 0) + (task.springs_242 || 0);
         let statusHTML = '';
         if (showStatus && task.status) {
           const statusClass = `status-${task.status || 'pending'}`;
@@ -289,8 +291,9 @@ function buildGridHTML(
         if (showWeights) {
           const w2 = parseFloat(task.ply2_weight || 0);
           const w3 = parseFloat(task.ply3_weight || 0);
-          if (w2 > 0 || w3 > 0) {
-            weightHTML = `<div class="cell-weight-row">Wt: ${(w2 + w3).toFixed(2)}kg</div>`;
+          const w242 = parseFloat(task.ply242_weight || 0);
+          if (w2 > 0 || w3 > 0 || w242 > 0) {
+            weightHTML = `<div class="cell-weight-row">Wt: ${(w2 + w3 + w242).toFixed(2)}kg</div>`;
           }
         }
 
@@ -305,6 +308,10 @@ function buildGridHTML(
               <div class="cell-ply-item">
                 <span class="cell-ply-label">3P</span>
                 <span class="cell-ply-value">${task.springs_3ply || 0}</span>
+              </div>
+              <div class="cell-ply-item">
+                <span class="cell-ply-label">2/42</span>
+                <span class="cell-ply-value">${task.springs_242 || 0}</span>
               </div>
             </div>
             <div class="cell-total">Total: ${total}/${m.totalSprings}</div>

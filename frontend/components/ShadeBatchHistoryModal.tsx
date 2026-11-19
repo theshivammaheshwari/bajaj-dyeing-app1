@@ -21,10 +21,12 @@ export interface BatchRecordItem {
   shade_number: string;
   springs_2ply: number;
   springs_3ply: number;
+  springs_242?: number;
   total_springs: number;
   weight: number;
   ply2_weight: number;
   ply3_weight: number;
+  ply242_weight?: number;
   status: string;
   assigned_to: string;
   type: string;
@@ -40,24 +42,28 @@ export interface BatchHistoryData {
   last_batch_machine: string | null;
   last_2ply_date: string | null;
   last_3ply_date: string | null;
+  last_242_date?: string | null;
   total_batches: number;
   total_2ply_batches: number;
   total_3ply_batches: number;
+  total_242_batches?: number;
   total_2ply_springs: number;
   total_3ply_springs: number;
+  total_242_springs?: number;
   total_springs: number;
   total_weight: number;
   total_completed_batches: number;
   batches: BatchRecordItem[];
   history_2ply: BatchRecordItem[];
   history_3ply: BatchRecordItem[];
+  history_242?: BatchRecordItem[];
 }
 
 interface Props {
   visible: boolean;
   shadeNumber: string;
   shadeId?: string;
-  initialPlyFilter?: 'all' | '2ply' | '3ply';
+  initialPlyFilter?: 'all' | '2ply' | '3ply' | '242';
   onClose: () => void;
 }
 
@@ -72,7 +78,7 @@ export default function ShadeBatchHistoryModal({
   const [data, setData] = useState<BatchHistoryData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'all' | '2ply' | '3ply'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | '2ply' | '3ply' | '242'>('all');
 
   const displayShadeNumber = String(shadeNumber || '').trim().replace(/^#/, '');
 
@@ -143,6 +149,7 @@ export default function ShadeBatchHistoryModal({
     if (!data) return [];
     if (activeFilter === '2ply') return data.history_2ply || [];
     if (activeFilter === '3ply') return data.history_3ply || [];
+    if (activeFilter === '242') return data.history_242 || [];
     return data.batches || [];
   };
 
@@ -169,7 +176,7 @@ export default function ShadeBatchHistoryModal({
                 </View>
               </View>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                Past dyeing dates & complete 2-PLY / 3-PLY records
+                Past dyeing dates & complete 2-PLY / 3-PLY / 2/42 records
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.inputBackground }]}>
@@ -246,6 +253,17 @@ export default function ShadeBatchHistoryModal({
                   </Text>
                 </View>
 
+                {/* Last 2/42 Date */}
+                <View style={[styles.summaryCard, { backgroundColor: '#FFF5F5', borderColor: '#FED7D7' }]}>
+                  <Text style={styles.summaryCardLabel}>🧵 Last 2/42 Date</Text>
+                  <Text style={[styles.summaryCardValue, { color: '#C53030' }]}>
+                    {data.last_242_date || 'Never'}
+                  </Text>
+                  <Text style={styles.summaryCardSub}>
+                    {data.total_242_springs || 0} Springs Total ({data.total_242_batches || 0} lots)
+                  </Text>
+                </View>
+
                 {/* Total Stats */}
                 <View style={[styles.summaryCard, { backgroundColor: colors.primaryLight, borderColor: colors.primary }]}>
                   <Text style={[styles.summaryCardLabel, { color: colors.primary }]}>📊 Total Batches</Text>
@@ -310,24 +328,42 @@ export default function ShadeBatchHistoryModal({
                     3-PLY Record ({data.total_3ply_batches})
                   </Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.filterTab,
+                    activeFilter === '242' && [styles.filterTabActive, { backgroundColor: '#C53030' }],
+                  ]}
+                  onPress={() => setActiveFilter('242')}
+                >
+                  <Text
+                    style={[
+                      styles.filterTabText,
+                      activeFilter === '242' ? { color: '#fff' } : { color: colors.text },
+                    ]}
+                  >
+                    2/42 Record ({data.total_242_batches || 0})
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               {/* Batches Table / List */}
               {batchesToRender.length === 0 ? (
                 <View style={[styles.emptyFilterView, { borderColor: colors.border }]}>
                   <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-                    No batches found for {activeFilter === '2ply' ? '2-PLY' : '3-PLY'}.
+                    No batches found for {activeFilter === '2ply' ? '2-PLY' : activeFilter === '3ply' ? '3-PLY' : activeFilter === '242' ? '2/42' : 'this filter'}.
                   </Text>
                 </View>
               ) : (
                 <View style={[styles.tableWrap, { borderColor: colors.border }]}>
                   <View style={[styles.tableHeader, { backgroundColor: '#2D3748' }]}>
-                    <Text style={[styles.th, { flex: 1.3, color: '#fff' }]}>Date</Text>
-                    <Text style={[styles.th, { flex: 0.9, color: '#fff' }]}>Machine</Text>
-                    <Text style={[styles.th, { flex: 1, color: '#fff' }]}>2-PLY</Text>
-                    <Text style={[styles.th, { flex: 1, color: '#fff' }]}>3-PLY</Text>
-                    <Text style={[styles.th, { flex: 1.1, color: '#fff' }]}>Total (Sp)</Text>
-                    <Text style={[styles.th, { flex: 1.1, color: '#fff' }]}>Status</Text>
+                    <Text style={[styles.th, { flex: 1.2, color: '#fff' }]}>Date</Text>
+                    <Text style={[styles.th, { flex: 0.8, color: '#fff' }]}>Machine</Text>
+                    <Text style={[styles.th, { flex: 0.9, color: '#fff' }]}>2-PLY</Text>
+                    <Text style={[styles.th, { flex: 0.9, color: '#fff' }]}>3-PLY</Text>
+                    <Text style={[styles.th, { flex: 0.9, color: '#fff' }]}>2/42</Text>
+                    <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Total (Sp)</Text>
+                    <Text style={[styles.th, { flex: 1, color: '#fff' }]}>Status</Text>
                   </View>
 
                   {batchesToRender.map((b, idx) => {
@@ -343,7 +379,7 @@ export default function ShadeBatchHistoryModal({
                           },
                         ]}
                       >
-                        <View style={{ flex: 1.3 }}>
+                        <View style={{ flex: 1.2 }}>
                           <Text style={[styles.tdDate, { color: colors.text }]}>{b.date}</Text>
                           {isLatest && (
                             <View style={styles.latestBadge}>
@@ -352,13 +388,13 @@ export default function ShadeBatchHistoryModal({
                           )}
                         </View>
 
-                        <View style={{ flex: 0.9, alignItems: 'center' }}>
+                        <View style={{ flex: 0.8, alignItems: 'center' }}>
                           <View style={[styles.machineBadge, { backgroundColor: colors.primaryLight }]}>
                             <Text style={[styles.machineBadgeText, { color: colors.primary }]}>{b.machine}</Text>
                           </View>
                         </View>
 
-                        <View style={{ flex: 1, alignItems: 'center' }}>
+                        <View style={{ flex: 0.9, alignItems: 'center' }}>
                           <Text style={[styles.tdValue, { color: b.springs_2ply > 0 ? '#2B6CB0' : colors.textSecondary, fontWeight: b.springs_2ply > 0 ? 'bold' : 'normal' }]}>
                             {b.springs_2ply} sp
                           </Text>
@@ -367,7 +403,7 @@ export default function ShadeBatchHistoryModal({
                           ) : null}
                         </View>
 
-                        <View style={{ flex: 1, alignItems: 'center' }}>
+                        <View style={{ flex: 0.9, alignItems: 'center' }}>
                           <Text style={[styles.tdValue, { color: b.springs_3ply > 0 ? '#6B46C1' : colors.textSecondary, fontWeight: b.springs_3ply > 0 ? 'bold' : 'normal' }]}>
                             {b.springs_3ply} sp
                           </Text>
@@ -376,7 +412,16 @@ export default function ShadeBatchHistoryModal({
                           ) : null}
                         </View>
 
-                        <View style={{ flex: 1.1, alignItems: 'center' }}>
+                        <View style={{ flex: 0.9, alignItems: 'center' }}>
+                          <Text style={[styles.tdValue, { color: (b.springs_242 || 0) > 0 ? '#C53030' : colors.textSecondary, fontWeight: (b.springs_242 || 0) > 0 ? 'bold' : 'normal' }]}>
+                            {b.springs_242 || 0} sp
+                          </Text>
+                          {(b.ply242_weight || 0) > 0 ? (
+                            <Text style={styles.tdSubWeight}>{b.ply242_weight}kg</Text>
+                          ) : null}
+                        </View>
+
+                        <View style={{ flex: 1, alignItems: 'center' }}>
                           <Text style={[styles.tdTotalValue, { color: colors.text }]}>{b.total_springs} sp</Text>
                           {b.weight > 0 && <Text style={styles.tdSubWeight}>{b.weight} kg</Text>}
                         </View>

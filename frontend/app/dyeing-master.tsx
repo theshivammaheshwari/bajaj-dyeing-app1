@@ -76,7 +76,7 @@ export default function DyeingMaster() {
   const [payment, setPayment] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(getTodayDateString());
-  const [weightInputs, setWeightInputs] = useState<{ [key: string]: { ply2: string; ply3: string } }>({});
+  const [weightInputs, setWeightInputs] = useState<{ [key: string]: { ply2: string; ply3: string; ply242: string } }>({});
   const [activeTab, setActiveTab] = useState<'manual' | 'automatic'>('manual');
   const [isUpdating, setIsUpdating] = useState<{ [taskId: string]: boolean }>({});
   const [editingShade, setEditingShade] = useState<string | null>(null);
@@ -206,6 +206,7 @@ export default function DyeingMaster() {
             nextInputs[key] = {
               ply2: t.ply2_weight && t.ply2_weight > 0 ? t.ply2_weight.toFixed(3) : '',
               ply3: t.ply3_weight && t.ply3_weight > 0 ? t.ply3_weight.toFixed(3) : '',
+              ply242: t.ply242_weight && t.ply242_weight > 0 ? t.ply242_weight.toFixed(3) : '',
             };
           }
         });
@@ -218,6 +219,7 @@ export default function DyeingMaster() {
           nextInputs[key] = {
             ply2: t.ply2_weight && t.ply2_weight > 0 ? t.ply2_weight.toFixed(3) : '',
             ply3: t.ply3_weight && t.ply3_weight > 0 ? t.ply3_weight.toFixed(3) : '',
+            ply242: t.ply242_weight && t.ply242_weight > 0 ? t.ply242_weight.toFixed(3) : '',
           };
         }
       });
@@ -396,22 +398,22 @@ export default function DyeingMaster() {
 
   const effectivePayment = (payment && (payment.total_kg > 0 || !clientPayment?.total_kg)) ? payment : (clientPayment || payment);
 
-  const updateLocalWeight = (machineId: string, taskId: string, field: 'ply2' | 'ply3', value: string) => {
+  const updateLocalWeight = (machineId: string, taskId: string, field: 'ply2' | 'ply3' | 'ply242', value: string) => {
     const key = `${machineId}-${taskId}`;
     setWeightInputs(prev => ({
       ...prev,
       [key]: { 
-        ...(prev[key] || { ply2: '', ply3: '' }), 
+        ...(prev[key] || { ply2: '', ply3: '', ply242: '' }), 
         [field]: value 
       },
     }));
   };
 
-  const saveWeight = async (machineId: string, taskId: string, field: 'ply2' | 'ply3') => {
+  const saveWeight = async (machineId: string, taskId: string, field: 'ply2' | 'ply3' | 'ply242') => {
     const key = `${machineId}-${taskId}`;
     const value = weightInputs[key]?.[field] || '0';
     const numValue = parseFloat(value) || 0;
-    const apiField = field === 'ply2' ? 'ply2_weight' : 'ply3_weight';
+    const apiField = field === 'ply2' ? 'ply2_weight' : field === 'ply3' ? 'ply3_weight' : 'ply242_weight';
     await updateTaskFields(machineId, taskId, { [apiField]: numValue });
   };
 
@@ -539,7 +541,7 @@ export default function DyeingMaster() {
     showConfirm('Reset Task', message, async () => {
       await updateTaskFields(machineId, taskId, { status: 'pending' });
       const key = `${machineId}-${taskId}`;
-      setWeightInputs(prev => ({ ...prev, [key]: { ply2: '', ply3: '' } }));
+      setWeightInputs(prev => ({ ...prev, [key]: { ply2: '', ply3: '', ply242: '' } }));
       showAlert('Success', 'Task reset to pending');
     });
   };
@@ -723,7 +725,7 @@ export default function DyeingMaster() {
                 const tasks = filterTasksForMaster(rawTasks);
                 
                 const totalSpringsUsed = tasks.reduce(
-                  (sum: number, task: any) => sum + (task.springs_2ply || 0) + (task.springs_3ply || 0),
+                  (sum: number, task: any) => sum + (task.springs_2ply || 0) + (task.springs_3ply || 0) + (task.springs_242 || 0),
                   0
                 );
                 return (
@@ -885,10 +887,10 @@ export default function DyeingMaster() {
 
                             <View style={styles.summaryWeights}>
                               <Text style={[styles.summaryWeightText, { color: colors.text }]}>
-                                W: {(parseFloat(task.ply2_weight || '0') + parseFloat(task.ply3_weight || '0')).toFixed(2)}kg
+                                W: {(parseFloat(task.ply2_weight || '0') + parseFloat(task.ply3_weight || '0') + parseFloat(task.ply242_weight || '0')).toFixed(2)}kg
                               </Text>
                               <Text style={[styles.summarySpringText, { color: colors.textSecondary }]}>
-                                S: {task.springs_2ply + task.springs_3ply}
+                                S: {(task.springs_2ply || 0) + (task.springs_3ply || 0) + (task.springs_242 || 0)}
                               </Text>
                             </View>
 
@@ -923,6 +925,11 @@ export default function DyeingMaster() {
                                 <Text style={{ fontSize: 9, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Admin 3P</Text>
                                 <Text style={{ fontSize: 13, color: '#1d4ed8', fontWeight: '900' }}>{task.springs_3ply || 0}</Text>
                               </View>
+                              <View style={{ width: 1, height: 20, backgroundColor: '#bfdbfe' }} />
+                              <View style={{ alignItems: 'center' }}>
+                                <Text style={{ fontSize: 9, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Admin 2/42</Text>
+                                <Text style={{ fontSize: 13, color: '#1d4ed8', fontWeight: '900' }}>{task.springs_242 || 0}</Text>
+                              </View>
                             </View>
 
                             <View style={styles.inlineEditor}>
@@ -953,6 +960,22 @@ export default function DyeingMaster() {
                                     value={weightInputs[weightInputKey]?.ply3 || ''}
                                     onChangeText={val => updateLocalWeight(targetMachineForApi, taskIdForApi, 'ply3', val)}
                                     onBlur={() => saveWeight(targetMachineForApi, taskIdForApi, 'ply3')}
+                                    keyboardType="decimal-pad"
+                                    placeholder="0"
+                                    placeholderTextColor={colors.textSecondary}
+                                    editable={!updating && !locked}
+                                  />
+                                </View>
+                                <View style={styles.weightInputWrap}>
+                                  <Text style={[styles.weightLabel, { color: colors.textSecondary }]}>2/42 kg</Text>
+                                  <TextInput
+                                    style={[
+                                      styles.smallInput,
+                                      { color: colors.text, backgroundColor: colors.inputBackground, borderColor: colors.border },
+                                    ]}
+                                    value={weightInputs[weightInputKey]?.ply242 || ''}
+                                    onChangeText={val => updateLocalWeight(targetMachineForApi, taskIdForApi, 'ply242', val)}
+                                    onBlur={() => saveWeight(targetMachineForApi, taskIdForApi, 'ply242')}
                                     keyboardType="decimal-pad"
                                     placeholder="0"
                                     placeholderTextColor={colors.textSecondary}
@@ -1090,11 +1113,15 @@ export default function DyeingMaster() {
                 <View style={{ flexDirection: 'row', gap: 10, marginBottom: 15 }}>
                   <View style={{ flex: 1, backgroundColor: colors.background, padding: 8, borderRadius: 8 }}>
                     <Text style={{ fontSize: 12, color: colors.textSecondary }}>2P Springs</Text>
-                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{task.springs_2ply}</Text>
+                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{task.springs_2ply || 0}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: colors.background, padding: 8, borderRadius: 8 }}>
                     <Text style={{ fontSize: 12, color: colors.textSecondary }}>3P Springs</Text>
-                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{task.springs_3ply}</Text>
+                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{task.springs_3ply || 0}</Text>
+                  </View>
+                  <View style={{ flex: 1, backgroundColor: colors.background, padding: 8, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 12, color: colors.textSecondary }}>2/42 Springs</Text>
+                    <Text style={{ fontWeight: 'bold', color: colors.text }}>{task.springs_242 || 0}</Text>
                   </View>
                 </View>
 
@@ -1305,10 +1332,11 @@ const styles = StyleSheet.create({
   weightInputsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 4,
     marginBottom: 8,
   },
   weightInputWrap: {
-    flex: 0.48,
+    flex: 1,
   },
   weightLabel: {
     fontSize: 10,

@@ -120,11 +120,13 @@ class MachineTask(BaseModel):
     is_modified: Optional[bool] = False
     carried_forward: Optional[bool] = False
     original_date: Optional[str] = None
-    springs_2ply: int
-    springs_3ply: int
+    springs_2ply: Optional[int] = 0
+    springs_3ply: Optional[int] = 0
+    springs_242: Optional[int] = 0
     weight: float
     ply2_weight: Optional[float] = 0  # Weight in kg
     ply3_weight: Optional[float] = 0  # Weight in kg
+    ply242_weight: Optional[float] = 0  # Weight in kg
     start_time: Optional[str] = None  # ISO format
     end_time: Optional[str] = None    # ISO format
     completed_at: Optional[str] = None # ISO format for 24h lock
@@ -190,8 +192,10 @@ class ModifyPendingTaskRequest(BaseModel):
     shade_number: Optional[str] = None
     springs_2ply: Optional[int] = None
     springs_3ply: Optional[int] = None
+    springs_242: Optional[int] = None
     ply2_weight: Optional[float] = None
     ply3_weight: Optional[float] = None
+    ply242_weight: Optional[float] = None
     weight: Optional[float] = None
 
 
@@ -438,15 +442,19 @@ async def get_shade_batch_history(shade_number: Optional[str] = None, shade_id: 
                     
                     s2 = safe_int(t.get("springs_2ply", 0))
                     s3 = safe_int(t.get("springs_3ply", 0))
+                    s242 = safe_int(t.get("springs_242", 0))
                     
                     pw2 = safe_float(t.get("ply2_weight", 0))
                     w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
                     pw3 = safe_float(t.get("ply3_weight", 0))
                     w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+
+                    pw242 = safe_float(t.get("ply242_weight", 0))
+                    w242 = pw242 if pw242 > 0 else (s242 * kg_per_spring)
                     
                     raw_w = safe_float(t.get("weight", 0))
-                    tot_w = raw_w if raw_w > 0 else ((w2 + w3) if (w2 + w3) > 0 else capacity)
+                    tot_w = raw_w if raw_w > 0 else ((w2 + w3 + w242) if (w2 + w3 + w242) > 0 else capacity)
                     
                     machine_label = str(t.get("machine") or k).upper()
                     
@@ -457,10 +465,12 @@ async def get_shade_batch_history(shade_number: Optional[str] = None, shade_id: 
                         "shade_number": str(t.get('shade_number') or target_shade_number or clean_shade),
                         "springs_2ply": s2,
                         "springs_3ply": s3,
-                        "total_springs": s2 + s3,
+                        "springs_242": s242,
+                        "total_springs": s2 + s3 + s242,
                         "weight": round(tot_w, 2),
                         "ply2_weight": round(w2, 2),
                         "ply3_weight": round(w3, 2),
+                        "ply242_weight": round(w242, 2),
                         "status": str(t.get("status", "pending") or "pending").strip().lower(),
                         "assigned_to": str(t.get("assigned_to", "user1") or "user1"),
                         "type": "automatic" if is_auto else "manual",
@@ -486,11 +496,13 @@ async def get_shade_batch_history(shade_number: Optional[str] = None, shade_id: 
         
         history_2ply = [b for b in batches if b["springs_2ply"] > 0 or b["ply2_weight"] > 0]
         history_3ply = [b for b in batches if b["springs_3ply"] > 0 or b["ply3_weight"] > 0]
+        history_242 = [b for b in batches if b.get("springs_242", 0) > 0 or b.get("ply242_weight", 0) > 0]
         
         last_batch_date = batches[0]["date"] if batches else None
         last_batch_machine = batches[0]["machine"] if batches else None
         last_2ply_date = history_2ply[0]["date"] if history_2ply else None
         last_3ply_date = history_3ply[0]["date"] if history_3ply else None
+        last_242_date = history_242[0]["date"] if history_242 else None
         
         return {
             "shade_number": target_shade_number or clean_shade,
@@ -500,17 +512,21 @@ async def get_shade_batch_history(shade_number: Optional[str] = None, shade_id: 
             "last_batch_machine": last_batch_machine,
             "last_2ply_date": last_2ply_date,
             "last_3ply_date": last_3ply_date,
+            "last_242_date": last_242_date,
             "total_batches": len(batches),
             "total_2ply_batches": len(history_2ply),
             "total_3ply_batches": len(history_3ply),
+            "total_242_batches": len(history_242),
             "total_2ply_springs": sum(b["springs_2ply"] for b in batches),
             "total_3ply_springs": sum(b["springs_3ply"] for b in batches),
+            "total_242_springs": sum(b.get("springs_242", 0) for b in batches),
             "total_springs": sum(b["total_springs"] for b in batches),
             "total_weight": round(sum(b["weight"] for b in batches), 2),
             "total_completed_batches": len([b for b in batches if b["status"] == "completed"]),
             "batches": batches,
             "history_2ply": history_2ply,
-            "history_3ply": history_3ply
+            "history_3ply": history_3ply,
+            "history_242": history_242
         }
     except Exception as e:
         logger.error(f"Error in get_shade_batch_history: {e}")
@@ -1031,21 +1047,25 @@ async def generate_daily_task_pdf(task_id: str, assigned_to: Optional[str] = Non
                 elements.append(Paragraph("No tasks assigned", styles['Normal']))
             else:
                 # Table data
-                table_data = [['#', 'Shade', 'Type', '2PLY', '3PLY', 'Total', 'Status']]
+                table_data = [['#', 'Shade', 'Type', '2PLY', '3PLY', '2/42', 'Total', 'Status']]
                 for idx, t in enumerate(combined_tasks):
                     status = t.get('status', 'pending').upper()
                     m_type = t.get('type', 'manual')
+                    s2 = t.get('springs_2ply', 0)
+                    s3 = t.get('springs_3ply', 0)
+                    s242 = t.get('springs_242', 0)
                     table_data.append([
                         str(idx + 1),
                         f"#{t.get('shade_number', 'N/A')}",
                         "Auto" if m_type == "automatic" else "Man",
-                        str(t.get('springs_2ply', 0)),
-                        str(t.get('springs_3ply', 0)),
-                        str(t.get('springs_2ply', 0) + t.get('springs_3ply', 0)),
+                        str(s2),
+                        str(s3),
+                        str(s242),
+                        str(s2 + s3 + s242),
                         status
                     ])
                 
-                table = Table(table_data, colWidths=[30, 60, 40, 40, 40, 40, 70])
+                table = Table(table_data, colWidths=[25, 55, 35, 35, 35, 35, 35, 65])
                 table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -1125,9 +1145,10 @@ async def get_whatsapp_text(task_id: str, assigned_to: Optional[str] = None):
                     shade = t.get('shade_number', 'N/A')
                     ply2 = t.get('springs_2ply', 0)
                     ply3 = t.get('springs_3ply', 0)
-                    total = ply2 + ply3
+                    ply242 = t.get('springs_242', 0)
+                    total = ply2 + ply3 + ply242
                     message += f"   {idx+1}. Shade #{shade}\n"
-                    message += f"      2PLY: {ply2} | 3PLY: {ply3} | Total: {total}\n"
+                    message += f"      2PLY: {ply2} | 3PLY: {ply3} | 2/42: {ply242} | Total: {total}\n"
                 message += "\n"
         
         message += "─" * 25 + "\n"
@@ -1145,6 +1166,7 @@ async def update_machine_task(
     machine_task_id: str,
     ply2_weight: Optional[float] = None,
     ply3_weight: Optional[float] = None,
+    ply242_weight: Optional[float] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     completed_at: Optional[str] = None,
@@ -1187,6 +1209,8 @@ async def update_machine_task(
             machine_tasks[task_index]["ply2_weight"] = ply2_weight
         if ply3_weight is not None:
             machine_tasks[task_index]["ply3_weight"] = ply3_weight
+        if ply242_weight is not None:
+            machine_tasks[task_index]["ply242_weight"] = ply242_weight
         if start_time is not None:
             machine_tasks[task_index]["start_time"] = start_time if start_time else None
         if end_time is not None:
