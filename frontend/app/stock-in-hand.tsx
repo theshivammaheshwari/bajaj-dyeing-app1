@@ -29,9 +29,11 @@ interface PendingTaskItem {
   shade_number: string;
   springs_2ply: number;
   springs_3ply: number;
+  springs_242?: number;
   weight: number;
   ply2_weight: number;
   ply3_weight: number;
+  ply242_weight?: number;
   status: string;
   assigned_to: string;
   can_modify: boolean;
@@ -42,6 +44,7 @@ interface ManualEntryItem {
   date: string;
   ply2_kg: number;
   ply3_kg: number;
+  ply242_kg?: number;
   total_kg: number;
   notes: string;
   created_at: string;
@@ -56,27 +59,33 @@ interface ShadeStockItem {
   // Springs metrics (Primary for factory floor)
   springs_2ply: number;
   springs_3ply: number;
+  springs_242?: number;
   total_springs: number;
   is_spring_custom?: boolean;
   completed_springs_2ply: number;
   completed_springs_3ply: number;
+  completed_springs_242?: number;
   // Weight metrics
   completed_2ply_kg: number;
   completed_3ply_kg: number;
+  completed_242_kg?: number;
   completed_total_kg: number;
   completed_batches: number;
   manual_2ply_kg: number;
   manual_3ply_kg: number;
+  manual_242_kg?: number;
   manual_total_kg: number;
   manual_entries: ManualEntryItem[];
   current_stock_2ply_kg: number;
   current_stock_3ply_kg: number;
+  current_stock_242_kg?: number;
   current_stock_total_kg: number;
   pending_2ply_kg: number;
   pending_3ply_kg: number;
-  pending_total_kg: number;
+  pending_242_kg?: number;
   pending_springs_2ply: number;
   pending_springs_3ply: number;
+  pending_springs_242?: number;
   pending_batches: number;
   pending_tasks: PendingTaskItem[];
   last_batch_date: string | null;
@@ -93,9 +102,11 @@ interface StockInHandResponse {
     total_springs: number;
     total_springs_2ply: number;
     total_springs_3ply: number;
+    total_springs_242?: number;
     total_stock_kg: number;
     total_2ply_kg: number;
     total_3ply_kg: number;
+    total_242_kg?: number;
     total_pending_batches: number;
     total_shades_count: number;
     in_stock_shades_count: number;
@@ -112,17 +123,17 @@ export default function StockInHandScreen() {
   const [loading, setLoading] = useState(true);
   const [stockData, setStockData] = useState<StockInHandResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterTab, setFilterTab] = useState<'all' | 'in_stock' | '2ply' | '3ply' | 'pending'>('all');
+  const [filterTab, setFilterTab] = useState<'all' | 'in_stock' | '2ply' | '3ply' | '242' | 'pending'>('all');
 
   // Keyboard navigation & fast edit state
   const [selectedRowIndex, setSelectedRowIndex] = useState<number>(0);
-  const [selectedPly, setSelectedPly] = useState<'2ply' | '3ply'>('2ply');
+  const [selectedPly, setSelectedPly] = useState<'2ply' | '3ply' | '242'>('2ply');
   const [updatingShade, setUpdatingShade] = useState<string | null>(null);
   const [showKeysGuide, setShowKeysGuide] = useState(false);
 
   // Print Modal Options
   const [printModalVisible, setPrintModalVisible] = useState(false);
-  const [printPlyOption, setPrintPlyOption] = useState<'both' | '2ply' | '3ply'>('both');
+  const [printPlyOption, setPrintPlyOption] = useState<'both' | '2ply' | '3ply' | '242'>('both');
   const [printScope, setPrintScope] = useState<'all_sequence' | 'in_stock_only'>('all_sequence');
 
   // Manual Stock Modal State
@@ -130,6 +141,7 @@ export default function StockInHandScreen() {
   const [manualShade, setManualShade] = useState('');
   const [manualSprings2, setManualSprings2] = useState('');
   const [manualSprings3, setManualSprings3] = useState('');
+  const [manualSprings242, setManualSprings242] = useState('');
   const [submittingManual, setSubmittingManual] = useState(false);
 
   // Edit Pending Task Modal State
@@ -138,6 +150,7 @@ export default function StockInHandScreen() {
   const [taskShadeNumber, setTaskShadeNumber] = useState('');
   const [taskSprings2Ply, setTaskSprings2Ply] = useState('');
   const [taskSprings3Ply, setTaskSprings3Ply] = useState('');
+  const [taskSprings242, setTaskSprings242] = useState('');
   const [taskTotalWeight, setTaskTotalWeight] = useState('');
   const [savingTask, setSavingTask] = useState(false);
 
@@ -188,6 +201,7 @@ export default function StockInHandScreen() {
     if (filterTab === 'in_stock') return item.total_springs > 0;
     if (filterTab === '2ply') return item.springs_2ply > 0;
     if (filterTab === '3ply') return item.springs_3ply > 0;
+    if (filterTab === '242') return (item.springs_242 || 0) > 0;
     if (filterTab === 'pending') return item.pending_batches > 0;
     return true;
   });
@@ -202,7 +216,7 @@ export default function StockInHandScreen() {
   // Adjust Spring Quantity (+1 / -1 / set)
   const adjustSpringQuantity = async (
     shadeNumber: string,
-    plyType: '2ply' | '3ply',
+    plyType: '2ply' | '3ply' | '242',
     action: 'increment' | 'decrement' | 'set',
     value?: number
   ) => {
@@ -216,27 +230,33 @@ export default function StockInHandScreen() {
     const currentShade = { ...oldShades[targetIdx] };
     let new2p = currentShade.springs_2ply;
     let new3p = currentShade.springs_3ply;
+    let new242 = currentShade.springs_242 || 0;
 
     if (action === 'increment') {
       if (plyType === '2ply') new2p += 1;
-      else new3p += 1;
+      else if (plyType === '3ply') new3p += 1;
+      else new242 += 1;
     } else if (action === 'decrement') {
       if (plyType === '2ply') new2p = Math.max(0, new2p - 1);
-      else new3p = Math.max(0, new3p - 1);
+      else if (plyType === '3ply') new3p = Math.max(0, new3p - 1);
+      else new242 = Math.max(0, new242 - 1);
     } else if (action === 'set' && value !== undefined) {
       if (plyType === '2ply') new2p = Math.max(0, value);
-      else new3p = Math.max(0, value);
+      else if (plyType === '3ply') new3p = Math.max(0, value);
+      else new242 = Math.max(0, value);
     }
 
     currentShade.springs_2ply = new2p;
     currentShade.springs_3ply = new3p;
-    currentShade.total_springs = new2p + new3p;
+    currentShade.springs_242 = new242;
+    currentShade.total_springs = new2p + new3p + new242;
     oldShades[targetIdx] = currentShade;
 
     // Recalculate summary totals optimistically
     const newTotalSprings = oldShades.reduce((sum, s) => sum + s.total_springs, 0);
     const newSprings2 = oldShades.reduce((sum, s) => sum + s.springs_2ply, 0);
     const newSprings3 = oldShades.reduce((sum, s) => sum + s.springs_3ply, 0);
+    const newSprings242 = oldShades.reduce((sum, s) => sum + (s.springs_242 || 0), 0);
 
     setStockData({
       ...stockData,
@@ -245,6 +265,7 @@ export default function StockInHandScreen() {
         total_springs: newTotalSprings,
         total_springs_2ply: newSprings2,
         total_springs_3ply: newSprings3,
+        total_springs_242: newSprings242,
         in_stock_shades_count: oldShades.filter(s => s.total_springs > 0).length,
       },
       shades: oldShades,
@@ -404,10 +425,11 @@ export default function StockInHandScreen() {
   }, [selectedRowIndex]);
 
   // Handle Quick Manual Direct Set
-  const openManualDirectModal = (prefillShade = '', initial2p = 0, initial3p = 0) => {
+  const openManualDirectModal = (prefillShade = '', initial2p = 0, initial3p = 0, initial242 = 0) => {
     setManualShade(prefillShade);
     setManualSprings2(initial2p ? initial2p.toString() : '');
     setManualSprings3(initial3p ? initial3p.toString() : '');
+    setManualSprings242(initial242 ? initial242.toString() : '');
     setManualModalVisible(true);
   };
 
@@ -418,6 +440,7 @@ export default function StockInHandScreen() {
     }
     const s2 = parseInt(manualSprings2 || '0', 10);
     const s3 = parseInt(manualSprings3 || '0', 10);
+    const s242 = parseInt(manualSprings242 || '0', 10);
 
     try {
       setSubmittingManual(true);
@@ -428,6 +451,7 @@ export default function StockInHandScreen() {
           shade_number: manualShade.trim(),
           springs_2ply: s2,
           springs_3ply: s3,
+          springs_242: s242,
           action: 'set',
         }),
       });
@@ -457,6 +481,7 @@ export default function StockInHandScreen() {
     setTaskShadeNumber(task.shade_number);
     setTaskSprings2Ply(task.springs_2ply.toString());
     setTaskSprings3Ply(task.springs_3ply.toString());
+    setTaskSprings242((task.springs_242 || 0).toString());
     setTaskTotalWeight(task.weight > 0 ? task.weight.toString() : '');
     setEditTaskModalVisible(true);
   };
@@ -478,6 +503,7 @@ export default function StockInHandScreen() {
         shade_number: taskShadeNumber.trim(),
         springs_2ply: parseInt(taskSprings2Ply || '0', 10),
         springs_3ply: parseInt(taskSprings3Ply || '0', 10),
+        springs_242: parseInt(taskSprings242 || '0', 10),
         weight: taskTotalWeight ? parseFloat(taskTotalWeight) : undefined,
       };
 
@@ -519,6 +545,8 @@ export default function StockInHandScreen() {
         printList = printList.filter(s => s.springs_2ply > 0);
       } else if (printPlyOption === '3ply') {
         printList = printList.filter(s => s.springs_3ply > 0);
+      } else if (printPlyOption === '242') {
+        printList = printList.filter(s => (s.springs_242 || 0) > 0);
       } else {
         printList = printList.filter(s => s.total_springs > 0);
       }
@@ -544,14 +572,17 @@ export default function StockInHandScreen() {
     // Totals for sheet
     const total2p = printList.reduce((acc, s) => acc + s.springs_2ply, 0);
     const total3p = printList.reduce((acc, s) => acc + s.springs_3ply, 0);
-    const grandTotal = total2p + total3p;
+    const total242 = printList.reduce((acc, s) => acc + (s.springs_242 || 0), 0);
+    const grandTotal = total2p + total3p + total242;
 
     const plySubtitle =
       printPlyOption === '2ply'
         ? `Option: 2-PLY Only (Total: ${total2p} Springs)`
         : printPlyOption === '3ply'
         ? `Option: 3-PLY Only (Total: ${total3p} Springs)`
-        : `Option: Both 2-PLY & 3-PLY (2-PLY: ${total2p} | 3-PLY: ${total3p} | Total: ${grandTotal} Springs)`;
+        : printPlyOption === '242'
+        ? `Option: 2/42 Only (Total: ${total242} Springs)`
+        : `Option: All Types (2-PLY: ${total2p} | 3-PLY: ${total3p} | 2/42: ${total242} | Total: ${grandTotal} Springs)`;
 
     // Render table HTML per column
     const renderColumnTable = (items: ShadeStockItem[]) => {
@@ -562,7 +593,7 @@ export default function StockInHandScreen() {
               <th class="th-num">NUMBER</th>
               ${
                 printPlyOption === 'both'
-                  ? `<th class="th-qty">2-PLY</th><th class="th-qty">3-PLY</th><th class="th-qty">TOTAL</th>`
+                  ? `<th class="th-qty">2-PLY</th><th class="th-qty">3-PLY</th><th class="th-qty">2/42</th><th class="th-qty">TOTAL</th>`
                   : `<th class="th-qty">SPRING QTY</th>`
               }
             </tr>
@@ -577,11 +608,15 @@ export default function StockInHandScreen() {
                 } else if (printPlyOption === '3ply') {
                   const val = item.springs_3ply > 0 ? `<strong>${item.springs_3ply}</strong>` : `<span class="blank-line">______</span>`;
                   return `<tr><td class="td-num">${num}</td><td class="td-qty">${val}</td></tr>`;
+                } else if (printPlyOption === '242') {
+                  const val = (item.springs_242 || 0) > 0 ? `<strong>${item.springs_242}</strong>` : `<span class="blank-line">______</span>`;
+                  return `<tr><td class="td-num">${num}</td><td class="td-qty">${val}</td></tr>`;
                 } else {
                   const v2 = item.springs_2ply > 0 ? item.springs_2ply : '-';
                   const v3 = item.springs_3ply > 0 ? item.springs_3ply : '-';
+                  const v242 = (item.springs_242 || 0) > 0 ? item.springs_242 : '-';
                   const tot = item.total_springs > 0 ? `<strong>${item.total_springs}</strong>` : `<span class="blank-line">___</span>`;
-                  return `<tr><td class="td-num">${num}</td><td class="td-qty">${v2}</td><td class="td-qty">${v3}</td><td class="td-qty bold-tot">${tot}</td></tr>`;
+                  return `<tr><td class="td-num">${num}</td><td class="td-qty">${v2}</td><td class="td-qty">${v3}</td><td class="td-qty">${v242}</td><td class="td-qty bold-tot">${tot}</td></tr>`;
                 }
               })
               .join('')}
@@ -804,6 +839,16 @@ export default function StockInHandScreen() {
               <Text style={styles.kpiSub}>Active for 3-PLY Dispatch</Text>
             </View>
 
+            {/* 2/42 Springs */}
+            <View style={[styles.kpiCard, { backgroundColor: '#7C2D12', borderColor: '#EA580C' }]}>
+              <Text style={styles.kpiLabel}>2/42 SPRINGS READY</Text>
+              <Text style={styles.kpiValue}>
+                {grandSummary.total_springs_242 || 0}{' '}
+                <Text style={styles.kpiUnit}>SPRINGS</Text>
+              </Text>
+              <Text style={styles.kpiSub}>Active for 2/42 Dispatch</Text>
+            </View>
+
             {/* In-Progress Batches */}
             <View style={[styles.kpiCard, { backgroundColor: '#78350F', borderColor: '#F59E0B' }]}>
               <Text style={styles.kpiLabel}>IN-PROGRESS LOTS</Text>
@@ -832,7 +877,7 @@ export default function StockInHandScreen() {
                 <Text style={styles.keyBadge}>↑ / ↓ or Enter</Text> Move up/down between shade numbers
               </Text>
               <Text style={styles.keyItem}>
-                <Text style={styles.keyBadge}>← / →</Text> Switch active focus between 2-PLY and 3-PLY
+                <Text style={styles.keyBadge}>← / →</Text> Switch active focus between 2-PLY, 3-PLY and 2/42
               </Text>
               <Text style={styles.keyItem}>
                 <Text style={styles.keyBadge}>+ / =</Text> Quick +1 spring quantity directly
@@ -881,6 +926,7 @@ export default function StockInHandScreen() {
                 { key: 'in_stock', label: `In Stock (> 0)` },
                 { key: '2ply', label: `2-PLY Stock` },
                 { key: '3ply', label: `3-PLY Stock` },
+                { key: '242', label: `2/42 Stock` },
                 { key: 'pending', label: `Pending Batches (${grandSummary?.total_pending_batches || 0})` },
               ].map(t => (
                 <TouchableOpacity
@@ -990,7 +1036,7 @@ export default function StockInHandScreen() {
                       ) : (
                         <TouchableOpacity
                           style={styles.editValuesBtn}
-                          onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply)}
+                          onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0)}
                         >
                           <Text style={styles.editValuesBtnText}>✏️ Set</Text>
                         </TouchableOpacity>
@@ -998,7 +1044,7 @@ export default function StockInHandScreen() {
                     </View>
                   </View>
 
-                  {/* STEPPERS ROW: 2-PLY & 3-PLY SIDE BY SIDE */}
+                  {/* STEPPERS ROW: 2-PLY, 3-PLY & 2/42 */}
                   <View style={styles.mobileSteppersRow}>
                     {/* 2-PLY BOX */}
                     <View
@@ -1026,7 +1072,7 @@ export default function StockInHandScreen() {
                           onPress={() => {
                             setSelectedRowIndex(idx);
                             setSelectedPly('2ply');
-                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0);
                           }}
                         >
                           <Text style={[styles.qtyNumberText, { color: '#1E40AF' }]}>
@@ -1074,7 +1120,7 @@ export default function StockInHandScreen() {
                           onPress={() => {
                             setSelectedRowIndex(idx);
                             setSelectedPly('3ply');
-                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0);
                           }}
                         >
                           <Text style={[styles.qtyNumberText, { color: '#6B21A8' }]}>
@@ -1095,6 +1141,54 @@ export default function StockInHandScreen() {
                         </TouchableOpacity>
                       </View>
                     </View>
+
+                    {/* 2/42 BOX */}
+                    <View
+                      style={[
+                        styles.mobileStepperBox,
+                        { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+                        isSelectedRow && selectedPly === '242' && styles.mobileBoxActive,
+                      ]}
+                    >
+                      <Text style={[styles.mobileBoxLabel, { color: '#047857' }]}>⚡ 2/42</Text>
+                      <View style={styles.stepperButtonsRow}>
+                        <TouchableOpacity
+                          style={[styles.stepperBtn, styles.btnMinus]}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('242');
+                            adjustSpringQuantity(shade.shade_number, '242', 'decrement');
+                          }}
+                        >
+                          <Text style={styles.stepperBtnText}>−</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.qtyDisplayBox}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('242');
+                            openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0);
+                          }}
+                        >
+                          <Text style={[styles.qtyNumberText, { color: '#047857' }]}>
+                            {shade.springs_242 || 0}
+                          </Text>
+                          <Text style={styles.qtyUnitLabel}>spr</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.stepperBtn, styles.btnPlus]}
+                          onPress={() => {
+                            setSelectedRowIndex(idx);
+                            setSelectedPly('242');
+                            adjustSpringQuantity(shade.shade_number, '242', 'increment');
+                          }}
+                        >
+                          <Text style={styles.stepperBtnText}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </View>
                 </View>
               );
@@ -1107,7 +1201,7 @@ export default function StockInHandScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{ flexGrow: 1 }}
           >
-            <View style={[styles.tableContainer, { minWidth: 680, backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.tableContainer, { minWidth: 840, backgroundColor: colors.card, borderColor: colors.border }]}>
               {/* TABLE HEADER */}
               <View style={styles.tableHeaderRow}>
                 <View style={[styles.thCol, styles.colNum]}>
@@ -1118,6 +1212,9 @@ export default function StockInHandScreen() {
                 </View>
                 <View style={[styles.thCol, styles.colPly]}>
                   <Text style={[styles.thText, { color: '#7E22CE' }]}>3-PLY SPRINGS (+ / -)</Text>
+                </View>
+                <View style={[styles.thCol, styles.colPly]}>
+                  <Text style={[styles.thText, { color: '#047857' }]}>2/42 SPRINGS (+ / -)</Text>
                 </View>
                 <View style={[styles.thCol, styles.colTotal]}>
                   <Text style={styles.thText}>TOTAL SPRINGS</Text>
@@ -1184,7 +1281,7 @@ export default function StockInHandScreen() {
                         onPress={() => {
                           setSelectedRowIndex(idx);
                           setSelectedPly('2ply');
-                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0);
                         }}
                       >
                         <Text style={[styles.qtyNumberText, { color: '#1E40AF' }]}>
@@ -1221,7 +1318,7 @@ export default function StockInHandScreen() {
                         onPress={() => {
                           setSelectedRowIndex(idx);
                           setSelectedPly('3ply');
-                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply);
+                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0);
                         }}
                       >
                         <Text style={[styles.qtyNumberText, { color: '#6B21A8' }]}>
@@ -1233,6 +1330,43 @@ export default function StockInHandScreen() {
                       <TouchableOpacity
                         style={[styles.stepperBtn, styles.btnPlus]}
                         onPress={() => adjustSpringQuantity(shade.shade_number, '3ply', 'increment')}
+                      >
+                        <Text style={styles.stepperBtnText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* 2/42 SPRINGS COLUMN WITH (+ -) BUTTONS */}
+                    <View
+                      style={[
+                        styles.tdCol,
+                        styles.colPly,
+                        isSelectedRow && selectedPly === '242' && styles.activeCellHighlight,
+                      ]}
+                    >
+                      <TouchableOpacity
+                        style={[styles.stepperBtn, styles.btnMinus]}
+                        onPress={() => adjustSpringQuantity(shade.shade_number, '242', 'decrement')}
+                      >
+                        <Text style={styles.stepperBtnText}>−</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.qtyDisplayBox}
+                        onPress={() => {
+                          setSelectedRowIndex(idx);
+                          setSelectedPly('242');
+                          openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0);
+                        }}
+                      >
+                        <Text style={[styles.qtyNumberText, { color: '#047857' }]}>
+                          {shade.springs_242 || 0}
+                        </Text>
+                        <Text style={styles.qtyUnitLabel}>spr</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.stepperBtn, styles.btnPlus]}
+                        onPress={() => adjustSpringQuantity(shade.shade_number, '242', 'increment')}
                       >
                         <Text style={styles.stepperBtnText}>+</Text>
                       </TouchableOpacity>
@@ -1265,7 +1399,7 @@ export default function StockInHandScreen() {
                       ) : (
                         <TouchableOpacity
                           style={styles.editValuesBtn}
-                          onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply)}
+                          onPress={() => openManualDirectModal(shade.shade_number, shade.springs_2ply, shade.springs_3ply, shade.springs_242 || 0)}
                         >
                           <Text style={styles.editValuesBtnText}>✏️ Set Qty</Text>
                         </TouchableOpacity>
@@ -1313,6 +1447,18 @@ export default function StockInHandScreen() {
             >
               <Text style={[styles.floatingPlyToggleText, selectedPly === '3ply' && styles.floatingPlyToggleTextActive]}>
                 3P: {filteredShades[selectedRowIndex].springs_3ply}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.floatingPlyToggle,
+                selectedPly === '242' && styles.floatingPlyToggleActive242,
+              ]}
+              onPress={() => setSelectedPly('242')}
+            >
+              <Text style={[styles.floatingPlyToggleText, selectedPly === '242' && styles.floatingPlyToggleTextActive]}>
+                2/42: {filteredShades[selectedRowIndex].springs_242 || 0}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1399,6 +1545,15 @@ export default function StockInHandScreen() {
                     3-PLY Only
                   </Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.radioCard, printPlyOption === '242' && styles.radioCardActive]}
+                  onPress={() => setPrintPlyOption('242')}
+                >
+                  <Text style={[styles.radioText, printPlyOption === '242' && styles.radioTextActive]}>
+                    2/42 Only
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
 
@@ -1472,7 +1627,7 @@ export default function StockInHandScreen() {
             </View>
 
             <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
-              Shade ki direct 2-PLY &amp; 3-PLY physical springs inventory count set karein.
+              Shade ki direct 2-PLY, 3-PLY &amp; 2/42 physical springs inventory count set karein.
             </Text>
 
             {/* Shade Input */}
@@ -1487,10 +1642,10 @@ export default function StockInHandScreen() {
               />
             </View>
 
-            {/* 2-PLY and 3-PLY Springs */}
+            {/* 2-PLY, 3-PLY and 2/42 Springs */}
             <View style={styles.inputsRow}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={[styles.inputLabel, { color: '#1D4ED8' }]}>2-PLY Springs</Text>
+              <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
+                <Text style={[styles.inputLabel, { color: '#1D4ED8' }]}>2-PLY Spr</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                   placeholder="0"
@@ -1501,8 +1656,8 @@ export default function StockInHandScreen() {
                 />
               </View>
 
-              <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={[styles.inputLabel, { color: '#7E22CE' }]}>3-PLY Springs</Text>
+              <View style={[styles.inputGroup, { flex: 1, marginHorizontal: 3 }]}>
+                <Text style={[styles.inputLabel, { color: '#7E22CE' }]}>3-PLY Spr</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                   placeholder="0"
@@ -1510,6 +1665,18 @@ export default function StockInHandScreen() {
                   keyboardType="numeric"
                   value={manualSprings3}
                   onChangeText={setManualSprings3}
+                />
+              </View>
+
+              <View style={[styles.inputGroup, { flex: 1, marginLeft: 6 }]}>
+                <Text style={[styles.inputLabel, { color: '#047857' }]}>2/42 Spr</Text>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                  placeholder="0"
+                  placeholderTextColor={colors.textSecondary}
+                  keyboardType="numeric"
+                  value={manualSprings242}
+                  onChangeText={setManualSprings242}
                 />
               </View>
             </View>
@@ -1577,10 +1744,10 @@ export default function StockInHandScreen() {
               />
             </View>
 
-            {/* Springs 2P & 3P */}
+            {/* Springs 2P, 3P & 2/42 */}
             <View style={styles.inputsRow}>
-              <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={[styles.inputLabel, { color: '#1D4ED8' }]}>2-PLY Springs</Text>
+              <View style={[styles.inputGroup, { flex: 1, marginRight: 6 }]}>
+                <Text style={[styles.inputLabel, { color: '#1D4ED8' }]}>2-PLY Spr</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                   keyboardType="numeric"
@@ -1589,13 +1756,23 @@ export default function StockInHandScreen() {
                 />
               </View>
 
-              <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
-                <Text style={[styles.inputLabel, { color: '#7E22CE' }]}>3-PLY Springs</Text>
+              <View style={[styles.inputGroup, { flex: 1, marginHorizontal: 3 }]}>
+                <Text style={[styles.inputLabel, { color: '#7E22CE' }]}>3-PLY Spr</Text>
                 <TextInput
                   style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
                   keyboardType="numeric"
                   value={taskSprings3Ply}
                   onChangeText={setTaskSprings3Ply}
+                />
+              </View>
+
+              <View style={[styles.inputGroup, { flex: 1, marginLeft: 6 }]}>
+                <Text style={[styles.inputLabel, { color: '#047857' }]}>2/42 Spr</Text>
+                <TextInput
+                  style={[styles.formInput, { backgroundColor: colors.inputBackground, color: colors.text, borderColor: colors.border }]}
+                  keyboardType="numeric"
+                  value={taskSprings242}
+                  onChangeText={setTaskSprings242}
                 />
               </View>
             </View>
@@ -1908,7 +2085,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 6,
     alignItems: 'center',
-    minWidth: 680,
+    minWidth: 840,
   },
   tableRowSelected: {
     backgroundColor: '#DBEAFE',
@@ -2373,6 +2550,10 @@ const styles = StyleSheet.create({
   floatingPlyToggleActive3P: {
     backgroundColor: '#F3E8FF',
     borderColor: '#A855F7',
+  },
+  floatingPlyToggleActive242: {
+    backgroundColor: '#D1FAE5',
+    borderColor: '#10B981',
   },
   floatingPlyToggleText: {
     fontSize: 11,

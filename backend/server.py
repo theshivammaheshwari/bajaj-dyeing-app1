@@ -201,12 +201,13 @@ class ModifyPendingTaskRequest(BaseModel):
 
 class AdjustSpringsRequest(BaseModel):
     shade_number: str
-    ply_type: str = "2ply"  # "2ply" or "3ply" or "both"
+    ply_type: str = "2ply"  # "2ply" or "3ply" or "242" or "both" or "all"
     action: str = "increment"  # "increment", "decrement", "set"
     delta: Optional[int] = 1
     value: Optional[int] = None
     springs_2ply: Optional[int] = None
     springs_3ply: Optional[int] = None
+    springs_242: Optional[int] = None
 
 
 def safe_float(val, default=0.0) -> float:
@@ -1670,15 +1671,19 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                     "year": task_year,
                     "completed_2ply_kg": 0.0,
                     "completed_3ply_kg": 0.0,
+                    "completed_242_kg": 0.0,
                     "completed_total_kg": 0.0,
                     "completed_springs_2ply": 0,
                     "completed_springs_3ply": 0,
+                    "completed_springs_242": 0,
                     "completed_batches": 0,
                     "rejected_2ply_kg": 0.0,
                     "rejected_3ply_kg": 0.0,
+                    "rejected_242_kg": 0.0,
                     "rejected_total_kg": 0.0,
                     "rejected_springs_2ply": 0,
                     "rejected_springs_3ply": 0,
+                    "rejected_springs_242": 0,
                     "rejected_batches": 0,
                     "pending_total_kg": 0.0,
                     "pending_batches": 0,
@@ -1708,22 +1713,28 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                     
                     s2 = safe_int(t.get("springs_2ply", 0))
                     s3 = safe_int(t.get("springs_3ply", 0))
+                    s242 = safe_int(t.get("springs_242", 0))
                     
                     pw2 = safe_float(t.get("ply2_weight", 0))
                     w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
                     pw3 = safe_float(t.get("ply3_weight", 0))
                     w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+
+                    pw242 = safe_float(t.get("ply242_weight", 0))
+                    w242 = pw242 if pw242 > 0 else (s242 * kg_per_spring)
                     
-                    tot_w = (w2 + w3) if (w2 + w3) > 0 else safe_float(t.get("weight"), capacity)
+                    tot_w = (w2 + w3 + w242) if (w2 + w3 + w242) > 0 else safe_float(t.get("weight"), capacity)
                     status = str(t.get("status", "pending") or "pending").strip().lower()
                     
                     if status == "completed":
                         m_stat["completed_2ply_kg"] += w2
                         m_stat["completed_3ply_kg"] += w3
+                        m_stat["completed_242_kg"] += w242
                         m_stat["completed_total_kg"] += tot_w
                         m_stat["completed_springs_2ply"] += s2
                         m_stat["completed_springs_3ply"] += s3
+                        m_stat["completed_springs_242"] += s242
                         m_stat["completed_batches"] += 1
                         if t_master == "user1":
                             m_stat["dm1_completed_kg"] += tot_w
@@ -1732,9 +1743,11 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                     elif status == "rejected":
                         m_stat["rejected_2ply_kg"] += w2
                         m_stat["rejected_3ply_kg"] += w3
+                        m_stat["rejected_242_kg"] += w242
                         m_stat["rejected_total_kg"] += tot_w
                         m_stat["rejected_springs_2ply"] += s2
                         m_stat["rejected_springs_3ply"] += s3
+                        m_stat["rejected_springs_242"] += s242
                         m_stat["rejected_batches"] += 1
                         if t_master == "user1":
                             m_stat["dm1_rejected_kg"] += tot_w
@@ -1762,22 +1775,28 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                     
                     s2 = safe_int(t.get("springs_2ply", 0))
                     s3 = safe_int(t.get("springs_3ply", 0))
+                    s242 = safe_int(t.get("springs_242", 0))
                     
                     pw2 = safe_float(t.get("ply2_weight", 0))
                     w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
                     pw3 = safe_float(t.get("ply3_weight", 0))
                     w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+
+                    pw242 = safe_float(t.get("ply242_weight", 0))
+                    w242 = pw242 if pw242 > 0 else (s242 * kg_per_spring)
                     
-                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                    tot_w = (w2 + w3 + w242) if (w2 + w3 + w242) > 0 else capacity
                     status = str(t.get("status", "pending") or "pending").strip().lower()
                     
                     if status == "completed":
                         m_stat["completed_2ply_kg"] += w2
                         m_stat["completed_3ply_kg"] += w3
+                        m_stat["completed_242_kg"] += w242
                         m_stat["completed_total_kg"] += tot_w
                         m_stat["completed_springs_2ply"] += s2
                         m_stat["completed_springs_3ply"] += s3
+                        m_stat["completed_springs_242"] += s242
                         m_stat["completed_batches"] += 1
                         if t_master == "user1":
                             m_stat["dm1_completed_kg"] += tot_w
@@ -1786,9 +1805,11 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                     elif status == "rejected":
                         m_stat["rejected_2ply_kg"] += w2
                         m_stat["rejected_3ply_kg"] += w3
+                        m_stat["rejected_242_kg"] += w242
                         m_stat["rejected_total_kg"] += tot_w
                         m_stat["rejected_springs_2ply"] += s2
                         m_stat["rejected_springs_3ply"] += s3
+                        m_stat["rejected_springs_242"] += s242
                         m_stat["rejected_batches"] += 1
                         if t_master == "user1":
                             m_stat["dm1_rejected_kg"] += tot_w
@@ -1806,9 +1827,11 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
             
             m_val["completed_2ply_kg"] = round(m_val["completed_2ply_kg"], 2)
             m_val["completed_3ply_kg"] = round(m_val["completed_3ply_kg"], 2)
+            m_val["completed_242_kg"] = round(m_val.get("completed_242_kg", 0.0), 2)
             m_val["completed_total_kg"] = round(m_val["completed_total_kg"], 2)
             m_val["rejected_2ply_kg"] = round(m_val["rejected_2ply_kg"], 2)
             m_val["rejected_3ply_kg"] = round(m_val["rejected_3ply_kg"], 2)
+            m_val["rejected_242_kg"] = round(m_val.get("rejected_242_kg", 0.0), 2)
             m_val["rejected_total_kg"] = round(m_val["rejected_total_kg"], 2)
             m_val["pending_total_kg"] = round(m_val["pending_total_kg"], 2)
             m_val["total_processed_kg"] = round(tot_processed, 2)
@@ -1825,9 +1848,11 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
         # Grand Totals
         grand_completed_2ply_kg = sum(m["completed_2ply_kg"] for m in months_list)
         grand_completed_3ply_kg = sum(m["completed_3ply_kg"] for m in months_list)
+        grand_completed_242_kg = sum(m.get("completed_242_kg", 0.0) for m in months_list)
         grand_completed_total_kg = sum(m["completed_total_kg"] for m in months_list)
         grand_rejected_2ply_kg = sum(m["rejected_2ply_kg"] for m in months_list)
         grand_rejected_3ply_kg = sum(m["rejected_3ply_kg"] for m in months_list)
+        grand_rejected_242_kg = sum(m.get("rejected_242_kg", 0.0) for m in months_list)
         grand_rejected_total_kg = sum(m["rejected_total_kg"] for m in months_list)
         grand_completed_batches = sum(m["completed_batches"] for m in months_list)
         grand_rejected_batches = sum(m["rejected_batches"] for m in months_list)
@@ -1846,9 +1871,11 @@ async def get_monthly_production_report(year: Optional[str] = None, master: Opti
                 "total_completed_kg": round(grand_completed_total_kg, 2),
                 "total_completed_2ply_kg": round(grand_completed_2ply_kg, 2),
                 "total_completed_3ply_kg": round(grand_completed_3ply_kg, 2),
+                "total_completed_242_kg": round(grand_completed_242_kg, 2),
                 "total_rejected_kg": round(grand_rejected_total_kg, 2),
                 "total_rejected_2ply_kg": round(grand_rejected_2ply_kg, 2),
                 "total_rejected_3ply_kg": round(grand_rejected_3ply_kg, 2),
+                "total_rejected_242_kg": round(grand_rejected_242_kg, 2),
                 "total_processed_kg": round(grand_total_processed_kg, 2),
                 "total_completed_batches": grand_completed_batches,
                 "total_rejected_batches": grand_rejected_batches,
@@ -1908,19 +1935,24 @@ async def get_stock_in_hand(
                 "rc": s.get("rc", "No"),
                 "completed_2ply_kg": 0.0,
                 "completed_3ply_kg": 0.0,
+                "completed_242_kg": 0.0,
                 "completed_total_kg": 0.0,
                 "completed_springs_2ply": 0,
                 "completed_springs_3ply": 0,
+                "completed_springs_242": 0,
                 "completed_batches": 0,
                 "manual_2ply_kg": 0.0,
                 "manual_3ply_kg": 0.0,
+                "manual_242_kg": 0.0,
                 "manual_total_kg": 0.0,
                 "manual_entries": [],
                 "pending_2ply_kg": 0.0,
                 "pending_3ply_kg": 0.0,
+                "pending_242_kg": 0.0,
                 "pending_total_kg": 0.0,
                 "pending_springs_2ply": 0,
                 "pending_springs_3ply": 0,
+                "pending_springs_242": 0,
                 "pending_batches": 0,
                 "pending_tasks": [],
                 "last_batch_date": None,
@@ -1963,19 +1995,24 @@ async def get_stock_in_hand(
                             "rc": "No",
                             "completed_2ply_kg": 0.0,
                             "completed_3ply_kg": 0.0,
+                            "completed_242_kg": 0.0,
                             "completed_total_kg": 0.0,
                             "completed_springs_2ply": 0,
                             "completed_springs_3ply": 0,
+                            "completed_springs_242": 0,
                             "completed_batches": 0,
                             "manual_2ply_kg": 0.0,
                             "manual_3ply_kg": 0.0,
+                            "manual_242_kg": 0.0,
                             "manual_total_kg": 0.0,
                             "manual_entries": [],
                             "pending_2ply_kg": 0.0,
                             "pending_3ply_kg": 0.0,
+                            "pending_242_kg": 0.0,
                             "pending_total_kg": 0.0,
                             "pending_springs_2ply": 0,
                             "pending_springs_3ply": 0,
+                            "pending_springs_242": 0,
                             "pending_batches": 0,
                             "pending_tasks": [],
                             "last_batch_date": None,
@@ -1987,22 +2024,28 @@ async def get_stock_in_hand(
                     
                     s2 = safe_int(t.get("springs_2ply", 0))
                     s3 = safe_int(t.get("springs_3ply", 0))
+                    s242 = safe_int(t.get("springs_242", 0))
                     
                     pw2 = safe_float(t.get("ply2_weight", 0))
                     w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
                     pw3 = safe_float(t.get("ply3_weight", 0))
                     w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+
+                    pw242 = safe_float(t.get("ply242_weight", 0))
+                    w242 = pw242 if pw242 > 0 else (s242 * kg_per_spring)
                     
-                    tot_w = (w2 + w3) if (w2 + w3) > 0 else safe_float(t.get("weight"), capacity)
+                    tot_w = (w2 + w3 + w242) if (w2 + w3 + w242) > 0 else safe_float(t.get("weight"), capacity)
                     status = str(t.get("status", "pending") or "pending").strip().lower()
                     
                     if status == "completed":
                         shades_data[sn_key]["completed_2ply_kg"] += w2
                         shades_data[sn_key]["completed_3ply_kg"] += w3
+                        shades_data[sn_key]["completed_242_kg"] += w242
                         shades_data[sn_key]["completed_total_kg"] += tot_w
                         shades_data[sn_key]["completed_springs_2ply"] += s2
                         shades_data[sn_key]["completed_springs_3ply"] += s3
+                        shades_data[sn_key]["completed_springs_242"] += s242
                         shades_data[sn_key]["completed_batches"] += 1
                         curr_last = shades_data[sn_key]["last_batch_date"]
                         if not curr_last or dt_date > curr_last:
@@ -2010,9 +2053,11 @@ async def get_stock_in_hand(
                     elif status in ["pending", "in-progress"]:
                         shades_data[sn_key]["pending_2ply_kg"] += w2
                         shades_data[sn_key]["pending_3ply_kg"] += w3
+                        shades_data[sn_key]["pending_242_kg"] += w242
                         shades_data[sn_key]["pending_total_kg"] += tot_w
                         shades_data[sn_key]["pending_springs_2ply"] += s2
                         shades_data[sn_key]["pending_springs_3ply"] += s3
+                        shades_data[sn_key]["pending_springs_242"] += s242
                         shades_data[sn_key]["pending_batches"] += 1
                         shades_data[sn_key]["pending_tasks"].append({
                             "task_id": str(t.get("id", "") or ""),
@@ -2023,9 +2068,11 @@ async def get_stock_in_hand(
                             "shade_number": sn_raw,
                             "springs_2ply": s2,
                             "springs_3ply": s3,
+                            "springs_242": s242,
                             "weight": round(tot_w, 2),
                             "ply2_weight": round(w2, 2),
                             "ply3_weight": round(w3, 2),
+                            "ply242_weight": round(w242, 2),
                             "status": status,
                             "assigned_to": str(t.get("assigned_to", "user1") or "user1"),
                             "can_modify": True
@@ -2049,19 +2096,24 @@ async def get_stock_in_hand(
                             "rc": "No",
                             "completed_2ply_kg": 0.0,
                             "completed_3ply_kg": 0.0,
+                            "completed_242_kg": 0.0,
                             "completed_total_kg": 0.0,
                             "completed_springs_2ply": 0,
                             "completed_springs_3ply": 0,
+                            "completed_springs_242": 0,
                             "completed_batches": 0,
                             "manual_2ply_kg": 0.0,
                             "manual_3ply_kg": 0.0,
+                            "manual_242_kg": 0.0,
                             "manual_total_kg": 0.0,
                             "manual_entries": [],
                             "pending_2ply_kg": 0.0,
                             "pending_3ply_kg": 0.0,
+                            "pending_242_kg": 0.0,
                             "pending_total_kg": 0.0,
                             "pending_springs_2ply": 0,
                             "pending_springs_3ply": 0,
+                            "pending_springs_242": 0,
                             "pending_batches": 0,
                             "pending_tasks": [],
                             "last_batch_date": None,
@@ -2075,22 +2127,28 @@ async def get_stock_in_hand(
                     
                     s2 = safe_int(t.get("springs_2ply", 0))
                     s3 = safe_int(t.get("springs_3ply", 0))
+                    s242 = safe_int(t.get("springs_242", 0))
                     
                     pw2 = safe_float(t.get("ply2_weight", 0))
                     w2 = pw2 if pw2 > 0 else (s2 * kg_per_spring)
                     
                     pw3 = safe_float(t.get("ply3_weight", 0))
                     w3 = pw3 if pw3 > 0 else (s3 * kg_per_spring)
+
+                    pw242 = safe_float(t.get("ply242_weight", 0))
+                    w242 = pw242 if pw242 > 0 else (s242 * kg_per_spring)
                     
-                    tot_w = (w2 + w3) if (w2 + w3) > 0 else capacity
+                    tot_w = (w2 + w3 + w242) if (w2 + w3 + w242) > 0 else capacity
                     status = str(t.get("status", "pending") or "pending").strip().lower()
                     
                     if status == "completed":
                         shades_data[sn_key]["completed_2ply_kg"] += w2
                         shades_data[sn_key]["completed_3ply_kg"] += w3
+                        shades_data[sn_key]["completed_242_kg"] += w242
                         shades_data[sn_key]["completed_total_kg"] += tot_w
                         shades_data[sn_key]["completed_springs_2ply"] += s2
                         shades_data[sn_key]["completed_springs_3ply"] += s3
+                        shades_data[sn_key]["completed_springs_242"] += s242
                         shades_data[sn_key]["completed_batches"] += 1
                         curr_last = shades_data[sn_key]["last_batch_date"]
                         if not curr_last or dt_date > curr_last:
@@ -2098,9 +2156,11 @@ async def get_stock_in_hand(
                     elif status in ["pending", "in-progress"]:
                         shades_data[sn_key]["pending_2ply_kg"] += w2
                         shades_data[sn_key]["pending_3ply_kg"] += w3
+                        shades_data[sn_key]["pending_242_kg"] += w242
                         shades_data[sn_key]["pending_total_kg"] += tot_w
                         shades_data[sn_key]["pending_springs_2ply"] += s2
                         shades_data[sn_key]["pending_springs_3ply"] += s3
+                        shades_data[sn_key]["pending_springs_242"] += s242
                         shades_data[sn_key]["pending_batches"] += 1
                         shades_data[sn_key]["pending_tasks"].append({
                             "task_id": str(t.get("id", "") or ""),
@@ -2111,9 +2171,11 @@ async def get_stock_in_hand(
                             "shade_number": sn_raw,
                             "springs_2ply": s2,
                             "springs_3ply": s3,
+                            "springs_242": s242,
                             "weight": round(tot_w, 2),
                             "ply2_weight": round(w2, 2),
                             "ply3_weight": round(w3, 2),
+                            "ply242_weight": round(w242, 2),
                             "status": status,
                             "assigned_to": str(t.get("assigned_to", "user1") or "user1"),
                             "can_modify": True
@@ -2146,19 +2208,24 @@ async def get_stock_in_hand(
                     "rc": "No",
                     "completed_2ply_kg": 0.0,
                     "completed_3ply_kg": 0.0,
+                    "completed_242_kg": 0.0,
                     "completed_total_kg": 0.0,
                     "completed_springs_2ply": 0,
                     "completed_springs_3ply": 0,
+                    "completed_springs_242": 0,
                     "completed_batches": 0,
                     "manual_2ply_kg": 0.0,
                     "manual_3ply_kg": 0.0,
+                    "manual_242_kg": 0.0,
                     "manual_total_kg": 0.0,
                     "manual_entries": [],
                     "pending_2ply_kg": 0.0,
                     "pending_3ply_kg": 0.0,
+                    "pending_242_kg": 0.0,
                     "pending_total_kg": 0.0,
                     "pending_springs_2ply": 0,
                     "pending_springs_3ply": 0,
+                    "pending_springs_242": 0,
                     "pending_batches": 0,
                     "pending_tasks": [],
                     "last_batch_date": None,
@@ -2166,15 +2233,18 @@ async def get_stock_in_hand(
                 
             p2 = safe_float(entry.get("ply2_kg", 0))
             p3 = safe_float(entry.get("ply3_kg", 0))
+            p242 = safe_float(entry.get("ply242_kg", 0))
             shades_data[sn_key]["manual_2ply_kg"] += p2
             shades_data[sn_key]["manual_3ply_kg"] += p3
-            shades_data[sn_key]["manual_total_kg"] += (p2 + p3)
+            shades_data[sn_key]["manual_242_kg"] += p242
+            shades_data[sn_key]["manual_total_kg"] += (p2 + p3 + p242)
             shades_data[sn_key]["manual_entries"].append({
                 "id": str(entry.get("_id", "")),
                 "date": entry_date,
                 "ply2_kg": round(p2, 2),
                 "ply3_kg": round(p3, 2),
-                "total_kg": round(p2 + p3, 2),
+                "ply242_kg": round(p242, 2),
+                "total_kg": round(p2 + p3 + p242, 2),
                 "notes": str(entry.get("notes", "Manual entry") or ""),
                 "created_at": str(entry.get("created_at", "") or "")
             })
@@ -2190,6 +2260,7 @@ async def get_stock_in_hand(
                     spring_overrides[s_key] = {
                         "springs_2ply": safe_int(s_doc.get("springs_2ply")),
                         "springs_3ply": safe_int(s_doc.get("springs_3ply")),
+                        "springs_242": safe_int(s_doc.get("springs_242")),
                     }
                     if s_key not in shades_data:
                         shades_data[s_key] = {
@@ -2199,19 +2270,24 @@ async def get_stock_in_hand(
                             "rc": "No",
                             "completed_2ply_kg": 0.0,
                             "completed_3ply_kg": 0.0,
+                            "completed_242_kg": 0.0,
                             "completed_total_kg": 0.0,
                             "completed_springs_2ply": 0,
                             "completed_springs_3ply": 0,
+                            "completed_springs_242": 0,
                             "completed_batches": 0,
                             "manual_2ply_kg": 0.0,
                             "manual_3ply_kg": 0.0,
+                            "manual_242_kg": 0.0,
                             "manual_total_kg": 0.0,
                             "manual_entries": [],
                             "pending_2ply_kg": 0.0,
                             "pending_3ply_kg": 0.0,
+                            "pending_242_kg": 0.0,
                             "pending_total_kg": 0.0,
                             "pending_springs_2ply": 0,
                             "pending_springs_3ply": 0,
+                            "pending_springs_242": 0,
                             "pending_batches": 0,
                             "pending_tasks": [],
                             "last_batch_date": None,
@@ -2222,31 +2298,37 @@ async def get_stock_in_hand(
         for sn_key, data in shades_data.items():
             data["completed_2ply_kg"] = round(data["completed_2ply_kg"], 2)
             data["completed_3ply_kg"] = round(data["completed_3ply_kg"], 2)
+            data["completed_242_kg"] = round(data.get("completed_242_kg", 0.0), 2)
             data["completed_total_kg"] = round(data["completed_total_kg"], 2)
             data["manual_2ply_kg"] = round(data["manual_2ply_kg"], 2)
             data["manual_3ply_kg"] = round(data["manual_3ply_kg"], 2)
+            data["manual_242_kg"] = round(data.get("manual_242_kg", 0.0), 2)
             data["manual_total_kg"] = round(data["manual_total_kg"], 2)
             
             # Current stock in hand = completed production + manual stock adjustments
             stock_2p = round(data["completed_2ply_kg"] + data["manual_2ply_kg"], 2)
             stock_3p = round(data["completed_3ply_kg"] + data["manual_3ply_kg"], 2)
-            stock_tot = round(stock_2p + stock_3p, 2)
+            stock_242 = round(data["completed_242_kg"] + data["manual_242_kg"], 2)
+            stock_tot = round(stock_2p + stock_3p + stock_242, 2)
             
             data["current_stock_2ply_kg"] = stock_2p
             data["current_stock_3ply_kg"] = stock_3p
+            data["current_stock_242_kg"] = stock_242
             data["current_stock_total_kg"] = stock_tot
             
             # SPRINGS LOGIC (Primary metric requested by client)
             if sn_key in spring_overrides:
                 data["springs_2ply"] = max(0, spring_overrides[sn_key]["springs_2ply"])
                 data["springs_3ply"] = max(0, spring_overrides[sn_key]["springs_3ply"])
+                data["springs_242"] = max(0, safe_int(spring_overrides[sn_key].get("springs_242", 0)))
                 data["is_spring_custom"] = True
             else:
                 data["springs_2ply"] = max(0, data["completed_springs_2ply"])
                 data["springs_3ply"] = max(0, data["completed_springs_3ply"])
+                data["springs_242"] = max(0, safe_int(data.get("completed_springs_242", 0)))
                 data["is_spring_custom"] = False
                 
-            data["total_springs"] = data["springs_2ply"] + data["springs_3ply"]
+            data["total_springs"] = data["springs_2ply"] + data["springs_3ply"] + data["springs_242"]
             
             # 3-digit padded number e.g. 001, 002, 120 (Matches physical factory list format)
             sn_clean = data["shade_number"].strip()
@@ -2257,6 +2339,7 @@ async def get_stock_in_hand(
             
             data["pending_2ply_kg"] = round(data["pending_2ply_kg"], 2)
             data["pending_3ply_kg"] = round(data["pending_3ply_kg"], 2)
+            data["pending_242_kg"] = round(data.get("pending_242_kg", 0.0), 2)
             data["pending_total_kg"] = round(data["pending_total_kg"], 2)
             
             # Sort pending tasks descending by date
@@ -2289,6 +2372,7 @@ async def get_stock_in_hand(
         grand_total_springs = sum(i["total_springs"] for i in items_list)
         grand_springs_2ply = sum(i["springs_2ply"] for i in items_list)
         grand_springs_3ply = sum(i["springs_3ply"] for i in items_list)
+        grand_springs_242 = sum(i.get("springs_242", 0) for i in items_list)
         in_stock_shades_count = len([i for i in items_list if i["total_springs"] > 0])
         grand_pending_batches = sum(i["pending_batches"] for i in items_list)
         
@@ -2303,9 +2387,11 @@ async def get_stock_in_hand(
                 "total_springs": grand_total_springs,
                 "total_springs_2ply": grand_springs_2ply,
                 "total_springs_3ply": grand_springs_3ply,
+                "total_springs_242": grand_springs_242,
                 "total_stock_kg": round(sum(i["current_stock_total_kg"] for i in items_list), 2),
                 "total_2ply_kg": round(sum(i["current_stock_2ply_kg"] for i in items_list), 2),
                 "total_3ply_kg": round(sum(i["current_stock_3ply_kg"] for i in items_list), 2),
+                "total_242_kg": round(sum(i.get("current_stock_242_kg", 0.0) for i in items_list), 2),
                 "total_pending_batches": grand_pending_batches,
                 "total_shades_count": len(items_list),
                 "in_stock_shades_count": in_stock_shades_count,
@@ -2332,6 +2418,7 @@ async def adjust_springs(req: AdjustSpringsRequest):
             
         cur_2p = safe_int(existing.get("springs_2ply", 0)) if existing else 0
         cur_3p = safe_int(existing.get("springs_3ply", 0)) if existing else 0
+        cur_242 = safe_int(existing.get("springs_242", 0)) if existing else 0
         
         if req.action == "increment":
             step = abs(safe_int(req.delta, 1))
@@ -2339,29 +2426,39 @@ async def adjust_springs(req: AdjustSpringsRequest):
                 cur_2p += step
             elif req.ply_type == "3ply":
                 cur_3p += step
-            elif req.ply_type == "both":
+            elif req.ply_type in ["242", "2/42"]:
+                cur_242 += step
+            elif req.ply_type in ["both", "all"]:
                 cur_2p += step
                 cur_3p += step
+                cur_242 += step
         elif req.action == "decrement":
             step = abs(safe_int(req.delta, 1))
             if req.ply_type == "2ply":
                 cur_2p = max(0, cur_2p - step)
             elif req.ply_type == "3ply":
                 cur_3p = max(0, cur_3p - step)
-            elif req.ply_type == "both":
+            elif req.ply_type in ["242", "2/42"]:
+                cur_242 = max(0, cur_242 - step)
+            elif req.ply_type in ["both", "all"]:
                 cur_2p = max(0, cur_2p - step)
                 cur_3p = max(0, cur_3p - step)
+                cur_242 = max(0, cur_242 - step)
         elif req.action == "set":
             val = max(0, safe_int(req.value, 0))
             if req.ply_type == "2ply":
                 cur_2p = val
             elif req.ply_type == "3ply":
                 cur_3p = val
+            elif req.ply_type in ["242", "2/42"]:
+                cur_242 = val
                 
         if req.springs_2ply is not None:
             cur_2p = max(0, safe_int(req.springs_2ply))
         if req.springs_3ply is not None:
             cur_3p = max(0, safe_int(req.springs_3ply))
+        if req.springs_242 is not None:
+            cur_242 = max(0, safe_int(req.springs_242))
             
         await db.shade_spring_stocks.update_one(
             {"shade_number": clean_sn},
@@ -2369,6 +2466,7 @@ async def adjust_springs(req: AdjustSpringsRequest):
                 "shade_number": clean_sn,
                 "springs_2ply": cur_2p,
                 "springs_3ply": cur_3p,
+                "springs_242": cur_242,
                 "updated_at": datetime.utcnow()
             }},
             upsert=True
@@ -2379,7 +2477,8 @@ async def adjust_springs(req: AdjustSpringsRequest):
             "shade_number": clean_sn,
             "springs_2ply": cur_2p,
             "springs_3ply": cur_3p,
-            "total_springs": cur_2p + cur_3p,
+            "springs_242": cur_242,
+            "total_springs": cur_2p + cur_3p + cur_242,
             "message": f"Updated springs for Shade #{clean_sn}"
         }
     except Exception as e:
@@ -2434,12 +2533,18 @@ async def modify_pending_task(req: ModifyPendingTaskRequest):
             
         if req.springs_3ply is not None:
             target_lot["springs_3ply"] = req.springs_3ply
+
+        if req.springs_242 is not None:
+            target_lot["springs_242"] = req.springs_242
             
         if req.ply2_weight is not None:
             target_lot["ply2_weight"] = req.ply2_weight
             
         if req.ply3_weight is not None:
             target_lot["ply3_weight"] = req.ply3_weight
+
+        if req.ply242_weight is not None:
+            target_lot["ply242_weight"] = req.ply242_weight
             
         if req.weight is not None:
             target_lot["weight"] = req.weight
@@ -2937,6 +3042,7 @@ async def compute_shades_stock_map() -> dict:
                 "shade_number": sn,
                 "springs_2ply": 0,
                 "springs_3ply": 0,
+                "springs_242": 0,
             }
 
     for dt in daily_tasks:
@@ -2949,9 +3055,10 @@ async def compute_shades_stock_map() -> dict:
                         if sn:
                             k = sn.lower()
                             if k not in shades_stock:
-                                shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+                                shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0, "springs_242": 0}
                             shades_stock[k]["springs_2ply"] += safe_int(t.get("springs_2ply", 0))
                             shades_stock[k]["springs_3ply"] += safe_int(t.get("springs_3ply", 0))
+                            shades_stock[k]["springs_242"] += safe_int(t.get("springs_242", 0))
         auto_tasks = dt.get("automatic_tasks") or []
         if isinstance(auto_tasks, list):
             for t in auto_tasks:
@@ -2960,9 +3067,10 @@ async def compute_shades_stock_map() -> dict:
                     if sn:
                         k = sn.lower()
                         if k not in shades_stock:
-                            shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+                            shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0, "springs_242": 0}
                         shades_stock[k]["springs_2ply"] += safe_int(t.get("springs_2ply", 0))
                         shades_stock[k]["springs_3ply"] += safe_int(t.get("springs_3ply", 0))
+                        shades_stock[k]["springs_242"] += safe_int(t.get("springs_242", 0))
 
     stock_entries = await db.stock_entries.find({}).to_list(10000)
     for entry in stock_entries:
@@ -2971,7 +3079,7 @@ async def compute_shades_stock_map() -> dict:
             if sn:
                 k = sn.lower()
                 if k not in shades_stock:
-                    shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+                    shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0, "springs_242": 0}
 
     overrides = await db.shade_spring_stocks.find({}).to_list(10000)
     for o in overrides:
@@ -2979,9 +3087,10 @@ async def compute_shades_stock_map() -> dict:
         if sn:
             k = sn.lower()
             if k not in shades_stock:
-                shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0}
+                shades_stock[k] = {"shade_number": sn, "springs_2ply": 0, "springs_3ply": 0, "springs_242": 0}
             shades_stock[k]["springs_2ply"] = max(0, safe_int(o.get("springs_2ply", 0)))
             shades_stock[k]["springs_3ply"] = max(0, safe_int(o.get("springs_3ply", 0)))
+            shades_stock[k]["springs_242"] = max(0, safe_int(o.get("springs_242", 0)))
 
     return shades_stock
 
@@ -2994,21 +3103,25 @@ async def get_shade_stock(shade_number: str) -> dict:
             "shade_number": clean,
             "springs_2ply": max(0, safe_int(doc.get("springs_2ply", 0))),
             "springs_3ply": max(0, safe_int(doc.get("springs_3ply", 0))),
+            "springs_242": max(0, safe_int(doc.get("springs_242", 0))),
         }
     all_map = await compute_shades_stock_map()
     if k in all_map:
         return all_map[k]
-    return {"shade_number": clean, "springs_2ply": 0, "springs_3ply": 0}
+    return {"shade_number": clean, "springs_2ply": 0, "springs_3ply": 0, "springs_242": 0}
 
 async def adjust_shade_stock(shade_number: str, ply_type: str, delta: int) -> dict:
     clean = str(shade_number).strip().lstrip("#")
     cur = await get_shade_stock(clean)
     new_2p = cur["springs_2ply"]
     new_3p = cur["springs_3ply"]
+    new_242 = cur.get("springs_242", 0)
     if ply_type == "2ply":
         new_2p = max(0, new_2p + delta)
     elif ply_type == "3ply":
         new_3p = max(0, new_3p + delta)
+    elif ply_type in ["242", "2/42"]:
+        new_242 = max(0, new_242 + delta)
 
     await db.shade_spring_stocks.update_one(
         {"shade_number": clean},
@@ -3016,11 +3129,12 @@ async def adjust_shade_stock(shade_number: str, ply_type: str, delta: int) -> di
             "shade_number": clean,
             "springs_2ply": new_2p,
             "springs_3ply": new_3p,
+            "springs_242": new_242,
             "updated_at": datetime.utcnow()
         }},
         upsert=True
     )
-    return {"shade_number": clean, "springs_2ply": new_2p, "springs_3ply": new_3p}
+    return {"shade_number": clean, "springs_2ply": new_2p, "springs_3ply": new_3p, "springs_242": new_242}
 
 def get_section_ply_type(section_id: str, machine_id: str) -> str:
     """Determine whether a section uses 2-ply or 3-ply stock"""

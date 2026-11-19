@@ -23,15 +23,19 @@ interface MonthProductionItem {
   year: string;
   completed_2ply_kg: number;
   completed_3ply_kg: number;
+  completed_242_kg?: number;
   completed_total_kg: number;
   completed_springs_2ply: number;
   completed_springs_3ply: number;
+  completed_springs_242?: number;
   completed_batches: number;
   rejected_2ply_kg: number;
   rejected_3ply_kg: number;
+  rejected_242_kg?: number;
   rejected_total_kg: number;
   rejected_springs_2ply: number;
   rejected_springs_3ply: number;
+  rejected_springs_242?: number;
   rejected_batches: number;
   pending_total_kg: number;
   pending_batches: number;
@@ -51,9 +55,11 @@ interface MonthlyReportData {
     total_completed_kg: number;
     total_completed_2ply_kg: number;
     total_completed_3ply_kg: number;
+    total_completed_242_kg?: number;
     total_rejected_kg: number;
     total_rejected_2ply_kg: number;
     total_rejected_3ply_kg: number;
+    total_rejected_242_kg?: number;
     total_processed_kg: number;
     total_completed_batches: number;
     total_rejected_batches: number;
@@ -132,7 +138,7 @@ export default function MonthlyReport() {
     .header { text-align: center; border-bottom: 2px solid #2b6cb0; padding-bottom: 12px; margin-bottom: 20px; }
     .header h1 { margin: 0; color: #2b6cb0; font-size: 24px; }
     .header p { margin: 4px 0 0; color: #718096; font-size: 13px; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 24px; }
     .kpi-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; background: #f7fafc; }
     .kpi-label { font-size: 11px; color: #718096; text-transform: uppercase; font-weight: bold; }
     .kpi-val { font-size: 18px; font-weight: bold; margin: 4px 0; }
@@ -142,6 +148,7 @@ export default function MonthlyReport() {
     tr:nth-child(even) { background: #f8fafc; }
     .highlight-2p { color: #2b6cb0; font-weight: bold; }
     .highlight-3p { color: #6b46c1; font-weight: bold; }
+    .highlight-242 { color: #dd6b20; font-weight: bold; }
     .highlight-rej { color: #e53e3e; font-weight: bold; }
     .highlight-tot { font-weight: bold; color: #22543d; }
     .footer { margin-top: 30px; font-size: 11px; color: #a0aec0; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 10px; }
@@ -171,6 +178,11 @@ export default function MonthlyReport() {
       <small>${summary.total_completed_kg > 0 ? Math.round((summary.total_completed_3ply_kg / summary.total_completed_kg) * 100) : 0}%</small>
     </div>
     <div class="kpi-card">
+      <div class="kpi-label">2/42 Volume</div>
+      <div class="kpi-val" style="color: #dd6b20;">${(summary.total_completed_242_kg || 0).toLocaleString()} kg</div>
+      <small>${summary.total_completed_kg > 0 ? Math.round(((summary.total_completed_242_kg || 0) / summary.total_completed_kg) * 100) : 0}%</small>
+    </div>
+    <div class="kpi-card">
       <div class="kpi-label">Rejected / Loss</div>
       <div class="kpi-val" style="color: #e53e3e;">${summary.total_rejected_kg.toLocaleString()} kg</div>
       <small>${summary.rejection_rate_percent}% rejection rate</small>
@@ -184,6 +196,7 @@ export default function MonthlyReport() {
         <th>Completed Total</th>
         <th>2-PLY (kg)</th>
         <th>3-PLY (kg)</th>
+        <th>2/42 (kg)</th>
         <th>Rejected (kg)</th>
         <th>Rej %</th>
         <th>Lots (Done/Rej)</th>
@@ -196,6 +209,7 @@ export default function MonthlyReport() {
           <td class="highlight-tot">${m.completed_total_kg.toLocaleString()} kg</td>
           <td class="highlight-2p">${m.completed_2ply_kg.toLocaleString()} kg</td>
           <td class="highlight-3p">${m.completed_3ply_kg.toLocaleString()} kg</td>
+          <td class="highlight-242">${(m.completed_242_kg || 0).toLocaleString()} kg</td>
           <td class="highlight-rej">${m.rejected_total_kg > 0 ? `${m.rejected_total_kg.toLocaleString()} kg` : '-'}</td>
           <td>${m.rejection_rate_percent > 0 ? `${m.rejection_rate_percent}%` : '0%'}</td>
           <td>${m.completed_batches} / ${m.rejected_batches}</td>
@@ -385,7 +399,25 @@ export default function MonthlyReport() {
               <Text style={styles.kpiSub}>3-PLY yarn dyed</Text>
             </View>
 
-            {/* KPI 4: Rejected Total */}
+            {/* KPI 4: 2/42 Total */}
+            <View style={[styles.kpiCard, { backgroundColor: '#FFFAF0', borderColor: '#FEEBC8' }]}>
+              <View style={styles.kpiHeader}>
+                <Text style={styles.kpiLabel}>🧵 2/42 Volume</Text>
+                <View style={[styles.kpiBadge, { backgroundColor: '#FEEBC8' }]}>
+                  <Text style={{ color: '#DD6B20', fontSize: 10, fontWeight: 'bold' }}>
+                    {grandSummary && grandSummary.total_completed_kg > 0
+                      ? `${Math.round(((grandSummary.total_completed_242_kg || 0) / grandSummary.total_completed_kg) * 100)}%`
+                      : '0%'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.kpiValue, { color: '#DD6B20' }]}>
+                {(grandSummary?.total_completed_242_kg || 0).toLocaleString()} <Text style={styles.kpiUnit}>kg</Text>
+              </Text>
+              <Text style={styles.kpiSub}>2/42 yarn dyed</Text>
+            </View>
+
+            {/* KPI 5: Rejected Total */}
             <View style={[styles.kpiCard, { backgroundColor: '#FFF5F5', borderColor: '#FEB2B2' }]}>
               <View style={styles.kpiHeader}>
                 <Text style={styles.kpiLabel}>❌ Rejected / Loss</Text>
@@ -413,6 +445,7 @@ export default function MonthlyReport() {
             const totCompleted = m.completed_total_kg || 0;
             const p2Percent = totCompleted > 0 ? (m.completed_2ply_kg / totCompleted) * 100 : 0;
             const p3Percent = totCompleted > 0 ? (m.completed_3ply_kg / totCompleted) * 100 : 0;
+            const p242Percent = totCompleted > 0 ? ((m.completed_242_kg || 0) / totCompleted) * 100 : 0;
 
             return (
               <View
@@ -439,6 +472,7 @@ export default function MonthlyReport() {
                 <View style={styles.ratioBarContainer}>
                   <View style={[styles.ratioBarSegment, { flex: p2Percent || 1, backgroundColor: '#3182CE' }]} />
                   <View style={[styles.ratioBarSegment, { flex: p3Percent || 1, backgroundColor: '#805AD5' }]} />
+                  <View style={[styles.ratioBarSegment, { flex: p242Percent || 1, backgroundColor: '#DD6B20' }]} />
                   {m.rejected_total_kg > 0 && (
                     <View
                       style={[
@@ -473,6 +507,17 @@ export default function MonthlyReport() {
                     </Text>
                     <Text style={styles.metricSub}>
                       {m.completed_springs_3ply} springs ({Math.round(p3Percent)}%)
+                    </Text>
+                  </View>
+
+                  {/* 2/42 */}
+                  <View style={[styles.metricBox, { backgroundColor: '#FFFAF0' }]}>
+                    <Text style={styles.metricLabel}>2/42 Output</Text>
+                    <Text style={[styles.metricValue, { color: '#DD6B20' }]}>
+                      {(m.completed_242_kg || 0).toLocaleString()} kg
+                    </Text>
+                    <Text style={styles.metricSub}>
+                      {m.completed_springs_242 || 0} springs ({Math.round(p242Percent)}%)
                     </Text>
                   </View>
 
@@ -686,11 +731,13 @@ const styles = StyleSheet.create({
   },
   metricsGrid: {
     flexDirection: 'row',
-    gap: 10,
+    flexWrap: 'wrap',
+    gap: 8,
     marginBottom: 12,
   },
   metricBox: {
     flex: 1,
+    minWidth: 110,
     borderRadius: 10,
     padding: 10,
   },
